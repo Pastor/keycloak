@@ -19,6 +19,7 @@ package org.keycloak.services.resources.account;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.SortedSet;
@@ -35,6 +36,7 @@ import javax.ws.rs.core.Response;
 import javax.ws.rs.core.UriBuilder;
 import org.jboss.logging.Logger;
 import org.jboss.resteasy.spi.HttpRequest;
+import org.keycloak.broker.social.SocialIdentityProvider;
 import org.keycloak.common.util.Base64Url;
 import org.keycloak.credential.CredentialModel;
 import org.keycloak.events.Details;
@@ -47,7 +49,9 @@ import org.keycloak.models.IdentityProviderModel;
 import org.keycloak.models.KeycloakSession;
 import org.keycloak.models.RealmModel;
 import org.keycloak.models.UserModel;
+import org.keycloak.models.credential.PasswordCredentialModel;
 import org.keycloak.models.utils.KeycloakModelUtils;
+import org.keycloak.provider.ProviderFactory;
 import org.keycloak.representations.account.AccountLinkUriRepresentation;
 import org.keycloak.representations.account.LinkedAccountRepresentation;
 import org.keycloak.services.ErrorResponse;
@@ -56,6 +60,8 @@ import org.keycloak.services.managers.Auth;
 import org.keycloak.services.messages.Messages;
 import org.keycloak.services.resources.Cors;
 import org.keycloak.services.validation.Validation;
+
+import static org.keycloak.models.Constants.ACCOUNT_CONSOLE_CLIENT_ID;
 
 /**
  * API for linking/unlinking social login accounts
@@ -96,6 +102,16 @@ public class LinkedAccountsResource {
         SortedSet<LinkedAccountRepresentation> linkedAccounts = getLinkedAccounts(this.session, this.realm, this.user);
         return Cors.add(request, Response.ok(linkedAccounts)).auth().allowedOrigins(auth.getToken()).build();
     }
+    
+    private Set<String> findSocialIds() {
+       Set<String> socialIds = new HashSet();
+       List<ProviderFactory> providerFactories = session.getKeycloakSessionFactory().getProviderFactories(SocialIdentityProvider.class);
+       for (ProviderFactory factory: providerFactories) {
+           socialIds.add(factory.getId());
+       }
+       
+       return socialIds;
+    }
 
     public SortedSet<LinkedAccountRepresentation> getLinkedAccounts(KeycloakSession session, RealmModel realm, UserModel user) {
         List<IdentityProviderModel> identityProviders = realm.getIdentityProviders();
@@ -103,6 +119,7 @@ public class LinkedAccountsResource {
         
         if (identityProviders == null || identityProviders.isEmpty()) return linkedAccounts;
         
+        Set<String> socialIds = findSocialIds();
         Set<FederatedIdentityModel> identities = session.users().getFederatedIdentities(user, realm);
         for (IdentityProviderModel provider : identityProviders) {
             if (!provider.isEnabled()) {
@@ -117,6 +134,7 @@ public class LinkedAccountsResource {
 
             LinkedAccountRepresentation rep = new LinkedAccountRepresentation();
             rep.setConnected(identity != null);
+            rep.setSocial(socialIds.contains(provider.getProviderId()));
             rep.setProviderAlias(providerId);
             rep.setDisplayName(displayName);
             rep.setGuiOrder(guiOrder);
@@ -159,14 +177,16 @@ public class LinkedAccountsResource {
         try {
             String nonce = UUID.randomUUID().toString();
             MessageDigest md = MessageDigest.getInstance("SHA-256");
-            String input = nonce + auth.getSession().getId() +  client.getClientId() + providerId;
+            String input = nonce + auth.getSession().getId() +  ACCOUNT_CONSOLE_CLIENT_ID + providerId;
             byte[] check = md.digest(input.getBytes(StandardCharsets.UTF_8));
             String hash = Base64Url.encode(check);
             URI linkUri = Urls.identityProviderLinkRequest(this.session.getContext().getUri().getBaseUri(), providerId, realm.getName());
             linkUri = UriBuilder.fromUri(linkUri)
                     .queryParam("nonce", nonce)
                     .queryParam("hash", hash)
-                    .queryParam("client_id", client.getClientId())
+                    // need to use "account-console" client because IdentityBrokerService authenticates user using cookies
+                    // the regular "account" client is used only for REST calls therefore cookies authentication cannot be used
+                    .queryParam("client_id", ACCOUNT_CONSOLE_CLIENT_ID)
                     .queryParam("redirect_uri", redirectUri)
                     .build();
             
@@ -235,7 +255,7 @@ public class LinkedAccountsResource {
     }
     
     private boolean isPasswordSet() {
-        return session.userCredentialManager().isConfiguredFor(realm, user, CredentialModel.PASSWORD);
+        return session.userCredentialManager().isConfiguredFor(realm, user, PasswordCredentialModel.TYPE);
     }
     
     private boolean isValidProvider(String providerId) {

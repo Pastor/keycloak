@@ -33,8 +33,12 @@ public final class Constants {
     public static final String ADMIN_CLI_CLIENT_ID = "admin-cli";
 
     public static final String ACCOUNT_MANAGEMENT_CLIENT_ID = "account";
+    public static final String ACCOUNT_CONSOLE_CLIENT_ID = "account-console";
     public static final String BROKER_SERVICE_CLIENT_ID = "broker";
     public static final String REALM_MANAGEMENT_CLIENT_ID = "realm-management";
+
+    public static final String AUTH_BASE_URL_PROP = "${authBaseUrl}";
+    public static final String AUTH_ADMIN_URL_PROP = "${authAdminUrl}";
 
     public static final Collection<String> defaultClients = Arrays.asList(ACCOUNT_MANAGEMENT_CLIENT_ID, ADMIN_CLI_CLIENT_ID, BROKER_SERVICE_CLIENT_ID, REALM_MANAGEMENT_CLIENT_ID, ADMIN_CONSOLE_CLIENT_ID);
 
@@ -75,6 +79,8 @@ public final class Constants {
 
     public static final String IS_AIA_REQUEST = "IS_AIA_REQUEST";
     public static final String AIA_SILENT_CANCEL = "silent_cancel";
+    public static final String AUTHENTICATION_EXECUTION = "authenticationExecution";
+    public static final String CREDENTIAL_ID = "credentialId";
 
     public static final String SKIP_LINK = "skipLink";
     public static final String TEMPLATE_ATTR_ACTION_URI = "actionUri";

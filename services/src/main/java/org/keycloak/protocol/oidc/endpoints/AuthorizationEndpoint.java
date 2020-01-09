@@ -259,13 +259,13 @@ public class AuthorizationEndpoint extends AuthorizationEndpointBase {
         if ((parsedResponseType.hasResponseType(OIDCResponseType.CODE) || parsedResponseType.hasResponseType(OIDCResponseType.NONE)) && !client.isStandardFlowEnabled()) {
             ServicesLogger.LOGGER.flowNotAllowed("Standard");
             event.error(Errors.NOT_ALLOWED);
-            return redirectErrorToClient(parsedResponseMode, OAuthErrorException.UNSUPPORTED_RESPONSE_TYPE, "Client is not allowed to initiate browser login with given response_type. Standard flow is disabled for the client.");
+            return redirectErrorToClient(parsedResponseMode, OAuthErrorException.UNAUTHORIZED_CLIENT, "Client is not allowed to initiate browser login with given response_type. Standard flow is disabled for the client.");
         }
 
         if (parsedResponseType.isImplicitOrHybridFlow() && !client.isImplicitFlowEnabled()) {
             ServicesLogger.LOGGER.flowNotAllowed("Implicit");
             event.error(Errors.NOT_ALLOWED);
-            return redirectErrorToClient(parsedResponseMode, OAuthErrorException.UNSUPPORTED_RESPONSE_TYPE, "Client is not allowed to initiate browser login with given response_type. Implicit flow is disabled for the client.");
+            return redirectErrorToClient(parsedResponseMode, OAuthErrorException.UNAUTHORIZED_CLIENT, "Client is not allowed to initiate browser login with given response_type. Implicit flow is disabled for the client.");
         }
 
         this.parsedResponseMode = parsedResponseMode;
@@ -321,7 +321,7 @@ public class AuthorizationEndpoint extends AuthorizationEndpointBase {
             return false;
         }
         Matcher m = VALID_CODE_CHALLENGE_PATTERN.matcher(codeChallenge);
-        return m.matches() ? true : false;
+        return m.matches();
     }
 
     private Response checkParamsForPkceEnforcedClient(String codeChallengeMethod, String pkceCodeChallengeMethod, String codeChallenge) {
@@ -410,7 +410,7 @@ public class AuthorizationEndpoint extends AuthorizationEndpointBase {
         event.detail(Details.REDIRECT_URI, redirectUriParam);
 
         // redirect_uri parameter is required per OpenID Connect, but optional per OAuth2
-        redirectUri = RedirectUtils.verifyRedirectUri(session.getContext().getUri(), redirectUriParam, realm, client, isOIDCRequest);
+        redirectUri = RedirectUtils.verifyRedirectUri(session, redirectUriParam, client, isOIDCRequest);
         if (redirectUri == null) {
             event.error(Errors.INVALID_REDIRECT_URI);
             throw new ErrorPageException(session, authenticationSession, Response.Status.BAD_REQUEST, Messages.INVALID_PARAMETER, OIDCLoginProtocol.REDIRECT_URI_PARAM);

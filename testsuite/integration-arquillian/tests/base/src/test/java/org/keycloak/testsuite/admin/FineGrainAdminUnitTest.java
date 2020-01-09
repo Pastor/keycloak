@@ -17,52 +17,55 @@
 package org.keycloak.testsuite.admin;
 
 import org.hamcrest.Matchers;
-import org.jboss.arquillian.container.test.api.Deployment;
-import org.jboss.shrinkwrap.api.spec.WebArchive;
-import org.junit.After;
 import org.junit.Assert;
 import org.junit.Test;
 import org.keycloak.admin.client.Keycloak;
 import org.keycloak.authorization.AuthorizationProvider;
+import org.keycloak.authorization.model.Policy;
 import org.keycloak.authorization.model.Resource;
+import org.keycloak.authorization.model.ResourceServer;
 import org.keycloak.client.admin.cli.util.ConfigUtil;
 import org.keycloak.common.Profile;
-import org.keycloak.models.*;
+import org.keycloak.models.AdminRoles;
+import org.keycloak.models.ClientModel;
+import org.keycloak.models.Constants;
+import org.keycloak.models.GroupModel;
+import org.keycloak.models.KeycloakSession;
+import org.keycloak.models.RealmModel;
+import org.keycloak.models.RoleModel;
+import org.keycloak.models.UserCredentialModel;
+import org.keycloak.models.UserModel;
 import org.keycloak.models.utils.KeycloakModelUtils;
 import org.keycloak.models.utils.RepresentationToModel;
-import org.keycloak.representations.idm.authorization.ClientPolicyRepresentation;
-import org.keycloak.models.GroupModel;
+import org.keycloak.representations.idm.ClientRepresentation;
 import org.keycloak.representations.idm.ClientScopeRepresentation;
+import org.keycloak.representations.idm.RealmRepresentation;
+import org.keycloak.representations.idm.RoleRepresentation;
+import org.keycloak.representations.idm.UserRepresentation;
+import org.keycloak.representations.idm.authorization.ClientPolicyRepresentation;
+import org.keycloak.representations.idm.authorization.DecisionStrategy;
 import org.keycloak.representations.idm.authorization.Logic;
 import org.keycloak.representations.idm.authorization.UserPolicyRepresentation;
 import org.keycloak.services.resources.admin.permissions.AdminPermissionEvaluator;
 import org.keycloak.services.resources.admin.permissions.AdminPermissionManagement;
 import org.keycloak.services.resources.admin.permissions.AdminPermissions;
-import org.keycloak.authorization.model.Policy;
-import org.keycloak.authorization.model.ResourceServer;
-import org.keycloak.representations.idm.ClientRepresentation;
-import org.keycloak.representations.idm.RealmRepresentation;
-import org.keycloak.representations.idm.RoleRepresentation;
-import org.keycloak.representations.idm.UserRepresentation;
-import org.keycloak.representations.idm.authorization.DecisionStrategy;
 import org.keycloak.services.resources.admin.permissions.GroupPermissionManagement;
 import org.keycloak.testsuite.AbstractKeycloakTest;
-import org.keycloak.testsuite.ProfileAssume;
 import org.keycloak.testsuite.arquillian.AuthServerTestEnricher;
 import org.keycloak.testsuite.arquillian.annotation.EnableFeature;
 import org.keycloak.testsuite.arquillian.annotation.UncaughtServerErrorExpected;
 import org.keycloak.testsuite.auth.page.AuthRealm;
-import org.keycloak.testsuite.runonserver.RunOnServerDeployment;
 import org.keycloak.testsuite.util.AdminClientUtil;
 import org.keycloak.testsuite.utils.tls.TLSUtils;
 
 import javax.ws.rs.ClientErrorException;
 import javax.ws.rs.core.Response;
-
 import java.util.LinkedList;
 import java.util.List;
 
 import static org.keycloak.testsuite.admin.ImpersonationDisabledTest.IMPERSONATION_DISABLED;
+import org.keycloak.testsuite.arquillian.annotation.AuthServerContainerExclude;
+import org.keycloak.testsuite.arquillian.annotation.AuthServerContainerExclude.AuthServer;
 import static org.keycloak.testsuite.auth.page.AuthRealm.TEST;
 
 /**
@@ -72,11 +75,6 @@ import static org.keycloak.testsuite.auth.page.AuthRealm.TEST;
 public class FineGrainAdminUnitTest extends AbstractKeycloakTest {
 
     public static final String CLIENT_NAME = "application";
-
-    @Deployment
-    public static WebArchive deploy() {
-        return RunOnServerDeployment.create(FineGrainAdminUnitTest.class);
-    }
 
     @Override
     public void addTestRealms(List<RealmRepresentation> testRealms) {
@@ -410,6 +408,7 @@ public class FineGrainAdminUnitTest extends AbstractKeycloakTest {
     }
 
     @Test
+    @AuthServerContainerExclude(AuthServer.REMOTE)
     public void testRestEvaluation() throws Exception {
         testingClient.server().run(FineGrainAdminUnitTest::setupPolices);
         testingClient.server().run(FineGrainAdminUnitTest::setupUsers);
@@ -626,6 +625,7 @@ public class FineGrainAdminUnitTest extends AbstractKeycloakTest {
     }
 
     @Test
+    @AuthServerContainerExclude(AuthServer.REMOTE)
     public void testMasterRealm() throws Exception {
         // test that master realm can still perform operations when policies are in place
         //
@@ -704,6 +704,7 @@ public class FineGrainAdminUnitTest extends AbstractKeycloakTest {
 
     // KEYCLOAK-5152
     @Test
+    @AuthServerContainerExclude(AuthServer.REMOTE)
     public void testRealmWithComposites() throws Exception {
         testingClient.server().run(FineGrainAdminUnitTest::setup5152);
 
@@ -766,6 +767,7 @@ public class FineGrainAdminUnitTest extends AbstractKeycloakTest {
     }
 
     @Test
+    @AuthServerContainerExclude(AuthServer.REMOTE)
     public void testRemoveCleanup() throws Exception {
         testingClient.server().run(FineGrainAdminUnitTest::setupDeleteTest);
         testingClient.server().run(FineGrainAdminUnitTest::invokeDelete);
@@ -857,6 +859,7 @@ public class FineGrainAdminUnitTest extends AbstractKeycloakTest {
 
     @Test
     @UncaughtServerErrorExpected
+    @AuthServerContainerExclude(AuthServer.REMOTE)
     public void testTokenExchangeDisabled() throws Exception {
         checkTokenExchange(false);
     }
@@ -868,6 +871,7 @@ public class FineGrainAdminUnitTest extends AbstractKeycloakTest {
      */
     @Test
     @UncaughtServerErrorExpected
+    @AuthServerContainerExclude(AuthServer.REMOTE)
     @EnableFeature(value = Profile.Feature.TOKEN_EXCHANGE, skipRestart = true)
     public void testWithTokenExchange() throws Exception {
         String exchanged = checkTokenExchange(true);
@@ -879,6 +883,7 @@ public class FineGrainAdminUnitTest extends AbstractKeycloakTest {
     }
 
     @Test
+    @AuthServerContainerExclude(AuthServer.REMOTE)
     public void testUserPagination() {
         testingClient.server().run(session -> {
             RealmModel realm = session.realms().getRealmByName("test");
