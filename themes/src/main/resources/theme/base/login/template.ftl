@@ -52,10 +52,29 @@
                 </div>
             </div>
         </#if>
-        <h1 id="kc-page-title"><#nested "header"></h1>
+          <#if !(auth?has_content && auth.showUsername() && !auth.showResetCredentials())>
+              <h1 id="kc-page-title"><#nested "header"></h1>
+          <#else>
+              <#nested "show-username">
+          </#if>
       </header>
       <div id="kc-content">
         <div id="kc-content-wrapper">
+
+            <#if auth?has_content && auth.showUsername() && !auth.showResetCredentials()>
+                <div class="${properties.kcFormGroupClass!}">
+                    <div id="kc-username">
+                        <label id="kc-attempted-username">${auth.attemptedUsername}</label>
+                        <a id="reset-login" href="${url.loginRestartFlowUrl}">
+                            <div class="kc-login-tooltip">
+                                <i class="${properties.kcResetFlowIcon!}"></i>
+                                <span class="kc-tooltip-text">${msg("restartLoginTooltip")}</span>
+                            </div>
+                        </a>
+                    </div>
+                </div>
+                <hr/>
+            </#if>
 
           <#-- App-initiated actions should not see warning messages about the need to complete the action -->
           <#-- during login.                                                                               -->
@@ -71,12 +90,12 @@
 
           <#nested "form">
 
-          <#if auth?has_content && auth.showBackButton() >
-          <form id="kc-select-back-form" action="${url.loginAction}" method="post" <#if displayWide>class="${properties.kcContentWrapperClass!}"</#if>>
+          <#if auth?has_content && auth.showTryAnotherWayLink() >
+          <form id="kc-select-try-another-way-form" action="${url.loginAction}" method="post" <#if displayWide>class="${properties.kcContentWrapperClass!}"</#if>>
               <div <#if displayWide>class="${properties.kcFormSocialAccountContentClass!} ${properties.kcFormSocialAccountClass!}"</#if>>
                   <div class="${properties.kcFormGroupClass!}">
-                    <input class="${properties.kcButtonClass!} ${properties.kcButtonDefaultClass!} ${properties.kcButtonBlockClass!} ${properties.kcButtonLargeClass!}"
-                           name="back" id="kc-back" type="submit" value="${msg("doBack")}"/>
+                    <input type="hidden" name="tryAnotherWay" value="on" />
+                    <a href="#" id="try-another-way" onclick="document.forms['kc-select-try-another-way-form'].submit();return false;">${msg("doTryAnotherWay")}</a>
                   </div>
               </div>
           </form>
