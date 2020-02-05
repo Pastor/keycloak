@@ -1,4 +1,4 @@
-<#macro registrationLayout bodyClass="" displayInfo=false displayMessage=true displayWide=false>
+<#macro registrationLayout bodyClass="" displayInfo=false displayMessage=true displayRequiredFields=false displayWide=false showAnotherWayIfPresent=true>
 <!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN"  "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
 <html xmlns="http://www.w3.org/1999/xhtml" class="${properties.kcHtmlClass!}">
 
@@ -52,16 +52,42 @@
                 </div>
             </div>
         </#if>
-          <#if !(auth?has_content && auth.showUsername() && !auth.showResetCredentials())>
-              <h1 id="kc-page-title"><#nested "header"></h1>
-          <#else>
-              <#nested "show-username">
-          </#if>
-      </header>
-      <div id="kc-content">
-        <div id="kc-content-wrapper">
-
-            <#if auth?has_content && auth.showUsername() && !auth.showResetCredentials()>
+        <#if !(auth?has_content && auth.showUsername() && !auth.showResetCredentials())>
+            <#if displayRequiredFields>
+                <div class="${properties.kcContentWrapperClass!}">
+                    <div class="${properties.kcLabelWrapperClass!} subtitle">
+                        <span class="subtitle"><span class="required">*</span> ${msg("requiredFields")}</span>
+                    </div>
+                    <div class="col-md-10">
+                        <h1 id="kc-page-title"><#nested "header"></h1>
+                    </div>
+                </div>
+            <#else>
+                <h1 id="kc-page-title"><#nested "header"></h1>
+            </#if>
+        <#else>
+            <#if displayRequiredFields>
+                <div class="${properties.kcContentWrapperClass!}">
+                    <div class="${properties.kcLabelWrapperClass!} subtitle">
+                        <span class="subtitle"><span class="required">*</span> ${msg("requiredFields")}</span>
+                    </div>
+                    <div class="col-md-10">
+                        <#nested "show-username">
+                        <div class="${properties.kcFormGroupClass!}">
+                            <div id="kc-username">
+                                <label id="kc-attempted-username">${auth.attemptedUsername}</label>
+                                <a id="reset-login" href="${url.loginRestartFlowUrl}">
+                                    <div class="kc-login-tooltip">
+                                        <i class="${properties.kcResetFlowIcon!}"></i>
+                                        <span class="kc-tooltip-text">${msg("restartLoginTooltip")}</span>
+                                    </div>
+                                </a>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            <#else>
+                <#nested "show-username">
                 <div class="${properties.kcFormGroupClass!}">
                     <div id="kc-username">
                         <label id="kc-attempted-username">${auth.attemptedUsername}</label>
@@ -73,8 +99,11 @@
                         </a>
                     </div>
                 </div>
-                <hr/>
             </#if>
+        </#if>
+      </header>
+      <div id="kc-content">
+        <div id="kc-content-wrapper">
 
           <#-- App-initiated actions should not see warning messages about the need to complete the action -->
           <#-- during login.                                                                               -->
@@ -90,7 +119,7 @@
 
           <#nested "form">
 
-          <#if auth?has_content && auth.showTryAnotherWayLink() >
+          <#if auth?has_content && auth.showTryAnotherWayLink() && showAnotherWayIfPresent>
           <form id="kc-select-try-another-way-form" action="${url.loginAction}" method="post" <#if displayWide>class="${properties.kcContentWrapperClass!}"</#if>>
               <div <#if displayWide>class="${properties.kcFormSocialAccountContentClass!} ${properties.kcFormSocialAccountClass!}"</#if>>
                   <div class="${properties.kcFormGroupClass!}">

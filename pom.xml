@@ -82,7 +82,7 @@
         <!-- Will be used in the product. Upstream versions are overridden in the community profile -->
         <resteasy.version>3.9.3.Final</resteasy.version>
         <resteasy.undertow.version>${resteasy.version}</resteasy.undertow.version>
-        <owasp.html.sanitizer.version>20180219.1</owasp.html.sanitizer.version>
+        <owasp.html.sanitizer.version>20191001.1</owasp.html.sanitizer.version>
         <slf4j-api.version>1.7.22</slf4j-api.version>
         <slf4j.version>1.7.22</slf4j.version>
         <sun.istack.version>3.0.7</sun.istack.version>
@@ -113,8 +113,8 @@
         <commons-lang3.version>3.9</commons-lang3.version>
         <apacheds.version>2.0.0-M21</apacheds.version>
         <apacheds.codec.version>1.0.0-M33</apacheds.codec.version>
-        <google.zxing.version>3.2.1</google.zxing.version>
-        <freemarker.version>2.3.26-incubating</freemarker.version>
+        <google.zxing.version>3.4.0</google.zxing.version>
+        <freemarker.version>2.3.29</freemarker.version>
 
         <jetty9.version>${jetty92.version}</jetty9.version>
         <liquibase.version>3.5.5</liquibase.version>
@@ -148,7 +148,7 @@
         <osgi.bundle.plugin.version>2.3.7</osgi.bundle.plugin.version>
         <wildfly.plugin.version>1.2.1.Final</wildfly.plugin.version>
         <nexus.staging.plugin.version>1.6.5</nexus.staging.plugin.version>
-        <frontend.plugin.version>1.5</frontend.plugin.version>
+        <frontend.plugin.version>1.8.0</frontend.plugin.version>
         <docker.maven.plugin.version>0.28.0</docker.maven.plugin.version>
 
         <!-- Surefire Settings -->
@@ -171,8 +171,6 @@
         <!-- webauthn support -->
         <webauthn4j.version>0.9.14.RELEASE</webauthn4j.version>
         <org.apache.kerby.kerby-asn1.version>2.0.0</org.apache.kerby.kerby-asn1.version>
-        
-        <mvel.version>2.4.0.Final</mvel.version>
 
     </properties>
 
@@ -1476,11 +1474,6 @@
                 <groupId>org.apache.commons</groupId>
                 <artifactId>commons-lang3</artifactId>
                 <version>${commons-lang3.version}</version>
-            </dependency>
-            <dependency>
-                <groupId>org.mvel</groupId>
-                <artifactId>mvel2</artifactId>
-                <version>${mvel.version}</version>
             </dependency>
         </dependencies>
     </dependencyManagement>

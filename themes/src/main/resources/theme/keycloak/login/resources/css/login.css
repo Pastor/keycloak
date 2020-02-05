@@ -159,6 +159,16 @@ div.kc-logo-text span {
 
 /* TOTP */
 
+.subtitle {
+    text-align: right;
+    margin-top: 30px;
+    color: #909090;
+}
+
+.required {
+    color: #CB2915;
+}
+
 ol#kc-totp-settings {
     margin: 0;
     padding-left: 20px;
@@ -491,6 +501,14 @@ a.zocial  {
 
 .login-pf-page .btn-primary {
     margin-top: 0;
+}
+
+.login-pf-page .list-view-pf .list-group-item {
+    border-bottom: 1px solid #ededed;
+}
+
+.login-pf-page .list-view-pf-description {
+    width: 100%;
 }
 
 #kc-form-login div.form-group:last-of-type,

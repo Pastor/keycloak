@@ -22,6 +22,7 @@ import org.keycloak.authentication.AuthenticatorFactory;
 import org.keycloak.models.AuthenticationExecutionModel;
 import org.keycloak.models.KeycloakSession;
 import org.keycloak.models.KeycloakSessionFactory;
+import org.keycloak.models.credential.WebAuthnCredentialModel;
 import org.keycloak.provider.ProviderConfigProperty;
 
 import java.util.List;
@@ -37,7 +38,7 @@ public class WebAuthnAuthenticatorFactory implements AuthenticatorFactory {
 
     @Override
     public String getReferenceCategory() {
-        return "auth";
+        return WebAuthnCredentialModel.TYPE_TWOFACTOR;
     }
 
     @Override
@@ -57,7 +58,7 @@ public class WebAuthnAuthenticatorFactory implements AuthenticatorFactory {
 
     @Override
     public String getHelpText() {
-        return "Authenticator for WebAuthn";
+        return "Authenticator for WebAuthn. Usually used for WebAuthn two-factor authentication";
     }
 
    
