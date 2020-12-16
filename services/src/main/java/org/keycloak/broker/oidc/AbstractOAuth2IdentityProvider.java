@@ -43,6 +43,7 @@ import org.keycloak.events.EventType;
 import org.keycloak.jose.jws.JWSBuilder;
 import org.keycloak.models.ClientModel;
 import org.keycloak.models.FederatedIdentityModel;
+import org.keycloak.models.KeycloakContext;
 import org.keycloak.models.KeycloakSession;
 import org.keycloak.models.RealmModel;
 import org.keycloak.models.UserModel;
@@ -54,6 +55,7 @@ import org.keycloak.representations.AccessTokenResponse;
 import org.keycloak.representations.JsonWebToken;
 import org.keycloak.services.ErrorPage;
 import org.keycloak.services.ErrorResponseException;
+import org.keycloak.services.Urls;
 import org.keycloak.services.messages.Messages;
 import org.keycloak.sessions.AuthenticationSessionModel;
 import org.keycloak.vault.VaultStringSecret;
@@ -74,7 +76,6 @@ import java.io.IOException;
 import java.net.URI;
 import java.util.Arrays;
 import java.util.List;
-import java.util.UUID;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -335,13 +336,6 @@ public abstract class AbstractOAuth2IdentityProvider<C extends OAuth2IdentityPro
             uriBuilder.queryParam(OAuth2Constants.PROMPT, prompt);
         }
 
-        String nonce = request.getAuthenticationSession().getClientNote(OIDCLoginProtocol.NONCE_PARAM);
-        if (nonce == null || nonce.isEmpty()) {
-            nonce = UUID.randomUUID().toString();
-            request.getAuthenticationSession().setClientNote(OIDCLoginProtocol.NONCE_PARAM, nonce);
-        }
-        uriBuilder.queryParam(OIDCLoginProtocol.NONCE_PARAM, nonce);
-
         String acr = request.getAuthenticationSession().getClientNote(OAuth2Constants.ACR_VALUES);
         if (acr != null) {
             uriBuilder.queryParam(OAuth2Constants.ACR_VALUES, acr);
@@ -458,6 +452,10 @@ public abstract class AbstractOAuth2IdentityProvider<C extends OAuth2IdentityPro
         public Response authResponse(@QueryParam(AbstractOAuth2IdentityProvider.OAUTH2_PARAMETER_STATE) String state,
                                      @QueryParam(AbstractOAuth2IdentityProvider.OAUTH2_PARAMETER_CODE) String authorizationCode,
                                      @QueryParam(OAuth2Constants.ERROR) String error) {
+            if (state == null) {
+                return errorIdentityProviderLogin(Messages.IDENTITY_PROVIDER_MISSING_STATE_ERROR);
+            }
+
             if (error != null) {
                 logger.error(error + " for broker login " + getConfig().getProviderId());
                 if (error.equals(ACCESS_DENIED)) {
@@ -493,15 +491,21 @@ public abstract class AbstractOAuth2IdentityProvider<C extends OAuth2IdentityPro
             } catch (Exception e) {
                 logger.error("Failed to make identity provider oauth callback", e);
             }
+            return errorIdentityProviderLogin(Messages.IDENTITY_PROVIDER_UNEXPECTED_ERROR);
+        }
+
+        private Response errorIdentityProviderLogin(String message) {
             event.event(EventType.LOGIN);
             event.error(Errors.IDENTITY_PROVIDER_LOGIN_FAILURE);
-            return ErrorPage.error(session, null, Response.Status.BAD_GATEWAY, Messages.IDENTITY_PROVIDER_UNEXPECTED_ERROR);
+            return ErrorPage.error(session, null, Response.Status.BAD_GATEWAY, message);
         }
 
         public SimpleHttp generateTokenRequest(String authorizationCode) {
+            KeycloakContext context = session.getContext();
             SimpleHttp tokenRequest = SimpleHttp.doPost(getConfig().getTokenUrl(), session)
                     .param(OAUTH2_PARAMETER_CODE, authorizationCode)
-                    .param(OAUTH2_PARAMETER_REDIRECT_URI, session.getContext().getUri().getAbsolutePath().toString())
+                    .param(OAUTH2_PARAMETER_REDIRECT_URI, Urls.identityProviderAuthnResponse(context.getUri().getBaseUri(),
+                            getConfig().getAlias(), context.getRealm().getName()).toString())
                     .param(OAUTH2_PARAMETER_GRANT_TYPE, OAUTH2_GRANT_TYPE_AUTHORIZATION_CODE);
             return authenticateTokenRequest(tokenRequest);
         }

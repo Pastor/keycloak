@@ -42,6 +42,7 @@ import org.keycloak.testsuite.arquillian.annotation.ModelTest;
 
 import java.util.List;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.stream.Collectors;
 
 import static org.hamcrest.core.Is.is;
 import static org.junit.Assert.assertThat;
@@ -88,8 +89,7 @@ public class UserSessionInitializerTest extends AbstractTestRealmKeycloakTest {
         AtomicReference<UserSessionModel[]> origSessionsAtomic = new AtomicReference<>();
 
         KeycloakModelUtils.runJobInTransaction(session.getKeycloakSessionFactory(), (KeycloakSession SessionInit1) -> {
-            KeycloakSession currentSession = SessionInit1;
-            UserSessionManager sessionManager = new UserSessionManager(currentSession);
+            KeycloakSession currentSession = inheritClientConnection(session, SessionInit1);
 
             int started = Time.currentTime();
             startedAtomic.set(started);
@@ -103,7 +103,7 @@ public class UserSessionInitializerTest extends AbstractTestRealmKeycloakTest {
         });
 
         KeycloakModelUtils.runJobInTransaction(session.getKeycloakSessionFactory(), (KeycloakSession SessionInit2) -> {
-            KeycloakSession currentSession = SessionInit2;
+            KeycloakSession currentSession = inheritClientConnection(session, SessionInit2);
             RealmModel realm = currentSession.realms().getRealmByName(realmName);
 
             int started = startedAtomic.get();
@@ -117,7 +117,8 @@ public class UserSessionInitializerTest extends AbstractTestRealmKeycloakTest {
             assertThat("Count of offline sesions for client 'test-app'", currentSession.sessions().getOfflineSessionsCount(realm, testApp), is((long) 3));
             assertThat("Count of offline sesions for client 'third-party'", currentSession.sessions().getOfflineSessionsCount(realm, thirdparty), is((long) 1));
 
-            List<UserSessionModel> loadedSessions = currentSession.sessions().getOfflineUserSessions(realm, testApp, 0, 10);
+            List<UserSessionModel> loadedSessions = currentSession.sessions().getOfflineUserSessionsStream(realm, testApp, 0, 10)
+                    .collect(Collectors.toList());
             UserSessionProviderTest.assertSessions(loadedSessions, origSessions);
 
             assertSessionLoaded(loadedSessions, origSessions[0].getId(), currentSession.users().getUserByUsername("user1", realm), "127.0.0.1", started, started, "test-app", "third-party");
@@ -133,8 +134,7 @@ public class UserSessionInitializerTest extends AbstractTestRealmKeycloakTest {
         AtomicReference<UserSessionModel[]> origSessionsAtomic = new AtomicReference<>();
 
         KeycloakModelUtils.runJobInTransaction(session.getKeycloakSessionFactory(), (KeycloakSession SessionInitWithDeleting1) -> {
-            KeycloakSession currentSession = SessionInitWithDeleting1;
-            UserSessionManager sessionManager = new UserSessionManager(currentSession);
+            KeycloakSession currentSession = inheritClientConnection(session, SessionInitWithDeleting1);
 
             RealmModel realm = currentSession.realms().getRealmByName(realmName);
 
@@ -149,7 +149,7 @@ public class UserSessionInitializerTest extends AbstractTestRealmKeycloakTest {
         });
 
         KeycloakModelUtils.runJobInTransaction(session.getKeycloakSessionFactory(), (KeycloakSession SessionInitWithDeleting2) -> {
-            KeycloakSession currentSession = SessionInitWithDeleting2;
+            KeycloakSession currentSession = inheritClientConnection(session, SessionInitWithDeleting2);
 
             // Load sessions from persister into infinispan/memory
             UserSessionProviderFactory userSessionFactory = (UserSessionProviderFactory) currentSession.getKeycloakSessionFactory().getProviderFactory(UserSessionProvider.class);
@@ -157,7 +157,7 @@ public class UserSessionInitializerTest extends AbstractTestRealmKeycloakTest {
         });
 
         KeycloakModelUtils.runJobInTransaction(session.getKeycloakSessionFactory(), (KeycloakSession SessionInitWithDeleting3) -> {
-            KeycloakSession currentSession = SessionInitWithDeleting3;
+            KeycloakSession currentSession = inheritClientConnection(session, SessionInitWithDeleting3);
             RealmModel realm = currentSession.realms().getRealmByName(realmName);
 
             int started = startedAtomic.get();
@@ -168,7 +168,8 @@ public class UserSessionInitializerTest extends AbstractTestRealmKeycloakTest {
             ClientModel thirdparty = realm.getClientByClientId("third-party");
 
             assertThat("Count of offline sesions for client 'third-party'", currentSession.sessions().getOfflineSessionsCount(realm, thirdparty), is((long) 1));
-            List<UserSessionModel> loadedSessions = currentSession.sessions().getOfflineUserSessions(realm, thirdparty, 0, 10);
+            List<UserSessionModel> loadedSessions = currentSession.sessions().getOfflineUserSessionsStream(realm, thirdparty, 0, 10)
+                    .collect(Collectors.toList());
 
             assertThat("Size of loaded Sessions", loadedSessions.size(), is(1));
             assertSessionLoaded(loadedSessions, origSessions[0].getId(), currentSession.users().getUserByUsername("user1", realm), "127.0.0.1", started, started, "third-party");
@@ -184,14 +185,14 @@ public class UserSessionInitializerTest extends AbstractTestRealmKeycloakTest {
         AtomicReference<UserSessionModel[]> origSessionsAtomic = new AtomicReference<>();
 
         KeycloakModelUtils.runJobInTransaction(session.getKeycloakSessionFactory(), (KeycloakSession createSessionPersister1) -> {
-            KeycloakSession currentSession = createSessionPersister1;
+            KeycloakSession currentSession = inheritClientConnection(session, createSessionPersister1);
 
             UserSessionModel[] origSessions = createSessions(currentSession);
             origSessionsAtomic.set(origSessions);
         });
 
         KeycloakModelUtils.runJobInTransaction(session.getKeycloakSessionFactory(), (KeycloakSession createSessionPersister2) -> {
-            KeycloakSession currentSession = createSessionPersister2;
+            KeycloakSession currentSession = inheritClientConnection(session, createSessionPersister2);
             RealmModel realm = currentSession.realms().getRealmByName(realmName);
             UserSessionManager sessionManager = new UserSessionManager(currentSession);
 
@@ -206,7 +207,7 @@ public class UserSessionInitializerTest extends AbstractTestRealmKeycloakTest {
         });
 
         KeycloakModelUtils.runJobInTransaction(session.getKeycloakSessionFactory(), (KeycloakSession createSessionPersister3) -> {
-            KeycloakSession currentSession = createSessionPersister3;
+            KeycloakSession currentSession = inheritClientConnection(session, createSessionPersister3);
             RealmModel realm = currentSession.realms().getRealmByName(realmName);
 
             // Delete cache (persisted sessions are still kept)
@@ -219,7 +220,7 @@ public class UserSessionInitializerTest extends AbstractTestRealmKeycloakTest {
         });
 
         KeycloakModelUtils.runJobInTransaction(session.getKeycloakSessionFactory(), (KeycloakSession createSessionPersister4) -> {
-            KeycloakSession currentSession = createSessionPersister4;
+            KeycloakSession currentSession = inheritClientConnection(session, createSessionPersister4);
             RealmModel realm = currentSession.realms().getRealmByName(realmName);
 
             ClientModel testApp = realm.getClientByClientId("test-app");

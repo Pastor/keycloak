@@ -26,11 +26,15 @@ import org.apache.http.protocol.BasicHttpContext;
 import org.apache.http.protocol.HttpContext;
 import org.apache.http.util.EntityUtils;
 import org.jboss.arquillian.graphene.page.Page;
+import org.junit.BeforeClass;
 import org.junit.Test;
+import org.keycloak.common.Profile;
 import org.keycloak.representations.idm.RealmRepresentation;
 import org.keycloak.testsuite.AbstractKeycloakTest;
+import org.keycloak.testsuite.arquillian.annotation.DisableFeature;
 import org.keycloak.testsuite.auth.page.AuthRealm;
 import org.keycloak.testsuite.pages.LoginPage;
+import org.keycloak.testsuite.util.ContainerAssume;
 import org.keycloak.testsuite.util.OAuthClient;
 import org.keycloak.testsuite.util.OAuthClient.AuthorizationEndpointResponse;
 import org.keycloak.testsuite.util.RealmBuilder;
@@ -47,6 +51,7 @@ import static org.junit.Assert.assertThat;
 import static org.junit.Assert.assertTrue;
 import static org.keycloak.services.managers.AuthenticationManager.KEYCLOAK_IDENTITY_COOKIE;
 import static org.keycloak.services.managers.AuthenticationManager.KEYCLOAK_SESSION_COOKIE;
+import static org.keycloak.services.managers.AuthenticationSessionManager.AUTH_SESSION_ID;
 import static org.keycloak.services.util.CookieHelper.LEGACY_COOKIE;
 import static org.keycloak.testsuite.admin.AbstractAdminTest.loadJson;
 import static org.keycloak.testsuite.util.URLAssert.assertCurrentUrlStartsWithLoginUrlOf;
@@ -56,6 +61,7 @@ import static org.keycloak.testsuite.util.URLAssert.assertCurrentUrlStartsWithLo
  * @author hmlnarik
  * @author Vaclav Muzikar <vmuzikar@redhat.com>
  */
+@DisableFeature(value = Profile.Feature.ACCOUNT2, skipRestart = true) // TODO remove this (KEYCLOAK-16228)
 public class CookieTest extends AbstractKeycloakTest {
 
     @Page
@@ -115,7 +121,7 @@ public class CookieTest extends AbstractKeycloakTest {
                 assertThat(pageContent, not(containsString("Last name")));
 
                 // ... but were redirected to login page
-                assertThat(pageContent, containsString("Log In"));
+                assertThat(pageContent, containsString("Sign In"));
                 assertThat(pageContent, containsString("Forgot Password?"));
             }
         }
@@ -153,7 +159,7 @@ public class CookieTest extends AbstractKeycloakTest {
                 assertThat(pageContent, not(containsString("Last name")));
 
                 // ... but were redirected to login page
-                assertThat(pageContent, containsString("Log In"));
+                assertThat(pageContent, containsString("Sign In"));
                 assertThat(pageContent, containsString("Forgot Password?"));
             }
         }
@@ -161,6 +167,8 @@ public class CookieTest extends AbstractKeycloakTest {
 
     @Test
     public void legacyCookiesTest() {
+        ContainerAssume.assumeAuthServerSSL();
+
         accountPage.navigateTo();
         assertCurrentUrlStartsWithLoginUrlOf(accountPage);
 
@@ -170,9 +178,12 @@ public class CookieTest extends AbstractKeycloakTest {
         Cookie legacyIdentityCookie = driver.manage().getCookieNamed(KEYCLOAK_IDENTITY_COOKIE + LEGACY_COOKIE);
         Cookie sameSiteSessionCookie = driver.manage().getCookieNamed(KEYCLOAK_SESSION_COOKIE);
         Cookie legacySessionCookie = driver.manage().getCookieNamed(KEYCLOAK_SESSION_COOKIE + LEGACY_COOKIE);
+        Cookie sameSiteAuthSessionIdCookie = driver.manage().getCookieNamed(AUTH_SESSION_ID);
+        Cookie legacyAuthSessionIdCookie = driver.manage().getCookieNamed(AUTH_SESSION_ID + LEGACY_COOKIE);
 
         assertSameSiteCookies(sameSiteIdentityCookie, legacyIdentityCookie);
         assertSameSiteCookies(sameSiteSessionCookie, legacySessionCookie);
+        assertSameSiteCookies(sameSiteAuthSessionIdCookie, legacyAuthSessionIdCookie);
     }
 
     private void assertSameSiteCookies(Cookie sameSiteCookie, Cookie legacyCookie) {

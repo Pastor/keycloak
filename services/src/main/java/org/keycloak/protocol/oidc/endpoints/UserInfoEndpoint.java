@@ -35,6 +35,7 @@ import org.keycloak.jose.jws.JWSBuilder;
 import org.keycloak.models.AuthenticatedClientSessionModel;
 import org.keycloak.models.ClientModel;
 import org.keycloak.models.ClientSessionContext;
+import org.keycloak.protocol.oidc.TokenManager.NotBeforeCheck;
 import org.keycloak.models.KeycloakSession;
 import org.keycloak.models.RealmModel;
 import org.keycloak.models.UserModel;
@@ -44,6 +45,8 @@ import org.keycloak.protocol.oidc.OIDCLoginProtocol;
 import org.keycloak.representations.AccessToken;
 import org.keycloak.services.ErrorResponseException;
 import org.keycloak.services.Urls;
+import org.keycloak.services.clientpolicy.ClientPolicyException;
+import org.keycloak.services.clientpolicy.UserInfoRequestContext;
 import org.keycloak.services.managers.AppAuthManager;
 import org.keycloak.services.managers.AuthenticationManager;
 import org.keycloak.services.managers.UserSessionCrossDCManager;
@@ -59,9 +62,11 @@ import javax.ws.rs.Path;
 import javax.ws.rs.core.Context;
 import javax.ws.rs.core.HttpHeaders;
 import javax.ws.rs.core.Response;
+
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * @author pedroigor
@@ -127,6 +132,13 @@ public class UserInfoEndpoint {
     }
 
     private Response issueUserInfo(String tokenString) {
+
+        try {
+            session.clientPolicy().triggerOnEvent(new UserInfoRequestContext(tokenString));
+        } catch (ClientPolicyException cpe) {
+            throw new ErrorResponseException(Errors.INVALID_REQUEST, cpe.getErrorDetail(), Response.Status.BAD_REQUEST);
+        }
+
         EventBuilder event = new EventBuilder(realm, session, clientConnection)
                 .event(EventType.USER_INFO_REQUEST)
                 .detail(Details.AUTH_METHOD, Details.VALIDATE_ACCESS_TOKEN);
@@ -137,6 +149,7 @@ public class UserInfoEndpoint {
         }
 
         AccessToken token;
+        ClientModel clientModel;
         try {
             TokenVerifier<AccessToken> verifier = TokenVerifier.create(tokenString, AccessToken.class).withDefaultChecks()
                     .realmUrl(Urls.realmIssuer(session.getContext().getUri().getBaseUri(), realm.getName()));
@@ -145,15 +158,19 @@ public class UserInfoEndpoint {
             verifier.verifierContext(verifierContext);
 
             token = verifier.verify().getToken();
+
+            clientModel = realm.getClientByClientId(token.getIssuedFor());
+            if (clientModel == null) {
+                event.error(Errors.CLIENT_NOT_FOUND);
+                throw new ErrorResponseException(OAuthErrorException.INVALID_REQUEST, "Client not found", Response.Status.BAD_REQUEST);
+            }
+
+            TokenVerifier.createWithoutSignature(token)
+                    .withChecks(NotBeforeCheck.forModel(clientModel))
+                    .verify();
         } catch (VerificationException e) {
             event.error(Errors.INVALID_TOKEN);
             throw newUnauthorizedErrorResponseException(OAuthErrorException.INVALID_TOKEN, "Token verification failed");
-        }
-
-        ClientModel clientModel = realm.getClientByClientId(token.getIssuedFor());
-        if (clientModel == null) {
-            event.error(Errors.CLIENT_NOT_FOUND);
-            throw new ErrorResponseException(OAuthErrorException.INVALID_REQUEST, "Client not found", Response.Status.BAD_REQUEST);
         }
 
 	    if (!clientModel.getProtocol().equals(OIDCLoginProtocol.LOGIN_PROTOCOL)) {
@@ -197,11 +214,30 @@ public class UserInfoEndpoint {
         ClientSessionContext clientSessionCtx = DefaultClientSessionContext.fromClientSessionScopeParameter(clientSession, session);
 
         AccessToken userInfo = new AccessToken();
+        
         tokenManager.transformUserInfoAccessToken(session, userInfo, userSession, clientSessionCtx);
 
         Map<String, Object> claims = new HashMap<>();
         claims.put("sub", userModel.getId());
         claims.putAll(userInfo.getOtherClaims());
+
+        if (userInfo.getRealmAccess() != null) {
+            Map<String, Set<String>> realmAccess = new HashMap<>();
+            realmAccess.put("roles", userInfo.getRealmAccess().getRoles());
+            claims.put("realm_access", realmAccess);
+        }
+
+        if (userInfo.getResourceAccess() != null && !userInfo.getResourceAccess().isEmpty()) {
+            Map<String, Map<String, Set<String>>> resourceAccessMap = new HashMap<>();
+
+            for (Map.Entry<String, AccessToken.Access> resourceAccessMapEntry : userInfo.getResourceAccess()
+                    .entrySet()) {
+                Map<String, Set<String>> resourceAccess = new HashMap<>();
+                resourceAccess.put("roles", resourceAccessMapEntry.getValue().getRoles());
+                resourceAccessMap.put(resourceAccessMapEntry.getKey(), resourceAccess);
+            }
+            claims.put("resource_access", resourceAccessMap);
+        }
 
         Response.ResponseBuilder responseBuilder;
         OIDCAdvancedConfigWrapper cfg = OIDCAdvancedConfigWrapper.fromClientModel(clientModel);

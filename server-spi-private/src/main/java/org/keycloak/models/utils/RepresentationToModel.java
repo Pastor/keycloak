@@ -49,6 +49,9 @@ import org.keycloak.authorization.store.ResourceServerStore;
 import org.keycloak.authorization.store.ResourceStore;
 import org.keycloak.authorization.store.ScopeStore;
 import org.keycloak.authorization.store.StoreFactory;
+import org.keycloak.broker.provider.IdentityProvider;
+import org.keycloak.broker.provider.IdentityProviderFactory;
+import org.keycloak.broker.social.SocialIdentityProvider;
 import org.keycloak.common.enums.SslRequired;
 import org.keycloak.common.util.MultivaluedHashMap;
 import org.keycloak.common.util.UriUtils;
@@ -133,6 +136,7 @@ import org.keycloak.storage.UserStorageProvider;
 import org.keycloak.storage.UserStorageProviderModel;
 import org.keycloak.storage.federated.UserFederatedStorageProvider;
 import org.keycloak.util.JsonSerialization;
+import org.keycloak.validation.ValidationUtil;
 
 public class RepresentationToModel {
 
@@ -216,6 +220,16 @@ public class RepresentationToModel {
             newRealm.setOfflineSessionMaxLifespan(rep.getOfflineSessionMaxLifespan());
         else newRealm.setOfflineSessionMaxLifespan(Constants.DEFAULT_OFFLINE_SESSION_MAX_LIFESPAN);
 
+        if (rep.getClientSessionIdleTimeout() != null)
+            newRealm.setClientSessionIdleTimeout(rep.getClientSessionIdleTimeout());
+        if (rep.getClientSessionMaxLifespan() != null)
+            newRealm.setClientSessionMaxLifespan(rep.getClientSessionMaxLifespan());
+
+        if (rep.getClientOfflineSessionIdleTimeout() != null)
+            newRealm.setClientOfflineSessionIdleTimeout(rep.getClientOfflineSessionIdleTimeout());
+        if (rep.getClientOfflineSessionMaxLifespan() != null)
+            newRealm.setClientOfflineSessionMaxLifespan(rep.getClientOfflineSessionMaxLifespan());
+
         if (rep.getAccessCodeLifespan() != null) newRealm.setAccessCodeLifespan(rep.getAccessCodeLifespan());
         else newRealm.setAccessCodeLifespan(60);
 
@@ -280,11 +294,12 @@ public class RepresentationToModel {
 
                 newRealm.addRequiredActionProvider(model);
             }
+            DefaultRequiredActions.addDeleteAccountAction(newRealm);
         } else {
             DefaultRequiredActions.addActions(newRealm);
         }
 
-        importIdentityProviders(rep, newRealm);
+        importIdentityProviders(rep, newRealm, session);
         importIdentityProviderMappers(rep, newRealm);
 
         Map<String, ClientScopeModel> clientScopes = new HashMap<>();
@@ -312,8 +327,9 @@ public class RepresentationToModel {
             }
         }
 
+        Map<String, ClientModel> createdClients = new HashMap<>();
         if (rep.getClients() != null) {
-            createClients(session, rep, newRealm, mappedFlows);
+            createdClients = createClients(session, rep, newRealm, mappedFlows);
         }
 
         importRoles(rep.getRoles(), newRealm);
@@ -328,20 +344,19 @@ public class RepresentationToModel {
         if (rep.getClients() != null) {
             for (ClientRepresentation resourceRep : rep.getClients()) {
                 if (resourceRep.getDefaultRoles() != null) {
-                    ClientModel clientModel = newRealm.getClientByClientId(resourceRep.getClientId());
+                    ClientModel clientModel = createdClients.computeIfAbsent(resourceRep.getClientId(), k -> newRealm.getClientByClientId(resourceRep.getClientId()));
                     clientModel.updateDefaultRoles(resourceRep.getDefaultRoles());
+                    createdClients.put(clientModel.getClientId(), clientModel);
                 }
             }
         }
 
         // Now that all possible roles and clients are created, create scope mappings
 
-        //Map<String, ClientModel> appMap = newRealm.getClientNameMap();
-
         if (rep.getClientScopeMappings() != null) {
 
             for (Map.Entry<String, List<ScopeMappingRepresentation>> entry : rep.getClientScopeMappings().entrySet()) {
-                ClientModel app = newRealm.getClientByClientId(entry.getKey());
+                ClientModel app = createdClients.computeIfAbsent(entry.getKey(), k -> newRealm.getClientByClientId(entry.getKey()));
                 if (app == null) {
                     throw new RuntimeException("Unable to find client role mappings for client: " + entry.getKey());
                 }
@@ -350,17 +365,19 @@ public class RepresentationToModel {
         }
 
         if (rep.getScopeMappings() != null) {
+            Map<String, RoleModel> roleModelMap = newRealm.getRolesStream().collect(Collectors.toMap(RoleModel::getId, Function.identity()));
+
             for (ScopeMappingRepresentation scope : rep.getScopeMappings()) {
                 ScopeContainerModel scopeContainer = getScopeContainerHavingScope(newRealm, scope);
-
                 for (String roleString : scope.getRoles()) {
-                    RoleModel role = newRealm.getRole(roleString.trim());
+                    final String roleStringTrimmed = roleString.trim();
+                    RoleModel role = roleModelMap.computeIfAbsent(roleStringTrimmed, k -> newRealm.getRole(roleStringTrimmed));
                     if (role == null) {
-                        role = newRealm.addRole(roleString.trim());
+                        role = newRealm.addRole(roleString);
+                        roleModelMap.put(role.getId(), role);
                     }
                     scopeContainer.addScopeMapping(role);
                 }
-
             }
         }
 
@@ -371,7 +388,7 @@ public class RepresentationToModel {
         if (rep.getBrowserSecurityHeaders() != null) {
             newRealm.setBrowserSecurityHeaders(rep.getBrowserSecurityHeaders());
         } else {
-            newRealm.setBrowserSecurityHeaders(BrowserSecurityHeaders.defaultHeaders);
+            newRealm.setBrowserSecurityHeaders(BrowserSecurityHeaders.realmDefaultHeaders);
         }
 
         if (rep.getComponents() != null) {
@@ -398,14 +415,13 @@ public class RepresentationToModel {
 
         if (rep.getUsers() != null) {
             for (UserRepresentation userRep : rep.getUsers()) {
-                UserModel user = createUser(session, newRealm, userRep);
+                createUser(session, newRealm, userRep);
             }
         }
 
         if (rep.getFederatedUsers() != null) {
             for (UserRepresentation userRep : rep.getFederatedUsers()) {
                 importFederatedUser(session, newRealm, userRep);
-
             }
         }
 
@@ -431,7 +447,7 @@ public class RepresentationToModel {
             }
         }
 
-        if (newRealm.getComponents(newRealm.getId(), KeyProvider.class.getName()).isEmpty()) {
+        if (newRealm.getComponentsStream(newRealm.getId(), KeyProvider.class.getName()).count() == 0) {
             if (rep.getPrivateKey() != null) {
                 DefaultKeyProviders.createProviders(newRealm, rep.getPrivateKey(), rep.getCertificate());
             } else {
@@ -625,6 +641,9 @@ public class RepresentationToModel {
                     // Application role may already exists (for example if it is defaultRole)
                     RoleModel role = roleRep.getId() != null ? client.addRole(roleRep.getId(), roleRep.getName()) : client.addRole(roleRep.getName());
                     role.setDescription(roleRep.getDescription());
+                    if (roleRep.getAttributes() != null) {
+                        roleRep.getAttributes().forEach((key, value) -> role.setAttribute(key, value));
+                    }
                 }
             }
         }
@@ -660,13 +679,12 @@ public class RepresentationToModel {
     }
 
     public static void importGroup(RealmModel realm, GroupModel parent, GroupRepresentation group) {
-        GroupModel newGroup = realm.createGroup(group.getId(), group.getName());
+        GroupModel newGroup = realm.createGroup(group.getId(), group.getName(), parent);
         if (group.getAttributes() != null) {
             for (Map.Entry<String, List<String>> attr : group.getAttributes().entrySet()) {
                 newGroup.setAttribute(attr.getKey(), attr.getValue());
             }
         }
-        realm.moveGroup(newGroup, parent);
 
         if (group.getRealmRoles() != null) {
             for (String roleString : group.getRealmRoles()) {
@@ -708,6 +726,11 @@ public class RepresentationToModel {
             DefaultAuthenticationFlows.migrateFlows(newRealm);
         } else {
             for (AuthenticatorConfigRepresentation configRep : rep.getAuthenticatorConfig()) {
+                if (configRep.getAlias() == null) {
+                    // this can happen only during import json files from keycloak 3.4.0 and older
+                    throw new IllegalStateException("Provided realm contains authenticator config with null alias. "
+                            + "It should be resolved by adding alias to the authenticator config before exporting the realm.");
+                }
                 AuthenticatorConfigModel model = toModel(configRep);
                 newRealm.addAuthenticatorConfig(model);
             }
@@ -1077,6 +1100,14 @@ public class RepresentationToModel {
         if (rep.getOfflineSessionMaxLifespanEnabled() != null) realm.setOfflineSessionMaxLifespanEnabled(rep.getOfflineSessionMaxLifespanEnabled());
         if (rep.getOfflineSessionMaxLifespan() != null)
             realm.setOfflineSessionMaxLifespan(rep.getOfflineSessionMaxLifespan());
+        if (rep.getClientSessionIdleTimeout() != null)
+            realm.setClientSessionIdleTimeout(rep.getClientSessionIdleTimeout());
+        if (rep.getClientSessionMaxLifespan() != null)
+            realm.setClientSessionMaxLifespan(rep.getClientSessionMaxLifespan());
+        if (rep.getClientOfflineSessionIdleTimeout() != null)
+            realm.setClientOfflineSessionIdleTimeout(rep.getClientOfflineSessionIdleTimeout());
+        if (rep.getClientOfflineSessionMaxLifespan() != null)
+            realm.setClientOfflineSessionMaxLifespan(rep.getClientOfflineSessionMaxLifespan());
         if (rep.getRequiredCredentials() != null) {
             realm.updateRequiredCredentials(rep.getRequiredCredentials());
         }
@@ -1235,6 +1266,10 @@ public class RepresentationToModel {
         for (ClientRepresentation resourceRep : rep.getClients()) {
             ClientModel app = createClient(session, realm, resourceRep, false, mappedFlows);
             appMap.put(app.getClientId(), app);
+
+            ValidationUtil.validateClient(session, app, false, r -> {
+                throw new RuntimeException("Invalid client " + app.getClientId() + ": " + r.getAllErrorsAsString());
+            });
         }
         return appMap;
     }
@@ -1380,8 +1415,7 @@ public class RepresentationToModel {
 
         if (resourceRep.getProtocolMappers() != null) {
             // first, remove all default/built in mappers
-            Set<ProtocolMapperModel> mappers = client.getProtocolMappers();
-            for (ProtocolMapperModel mapper : mappers) client.removeProtocolMapper(mapper);
+            client.getProtocolMappersStream().collect(Collectors.toList()).forEach(client::removeProtocolMapper);
 
             for (ProtocolMapperRepresentation mapper : resourceRep.getProtocolMappers()) {
                 client.addProtocolMapper(toModel(mapper));
@@ -1472,7 +1506,7 @@ public class RepresentationToModel {
             }
         }
         if (rep.getAttributes() != null) {
-            for (Map.Entry<String, String> entry : rep.getAttributes().entrySet()) {
+            for (Map.Entry<String, String> entry : removeEmptyString(rep.getAttributes()).entrySet()) {
                 resource.setAttribute(entry.getKey(), entry.getValue());
             }
         }
@@ -1522,10 +1556,10 @@ public class RepresentationToModel {
     public static void updateClientProtocolMappers(ClientRepresentation rep, ClientModel resource) {
 
         if (rep.getProtocolMappers() != null) {
-            Map<String,ProtocolMapperModel> existingProtocolMappers = new HashMap<>();
-            for (ProtocolMapperModel existingProtocolMapper : resource.getProtocolMappers()) {
-                existingProtocolMappers.put(generateProtocolNameKey(existingProtocolMapper.getProtocol(), existingProtocolMapper.getName()), existingProtocolMapper);
-            }
+            Map<String,ProtocolMapperModel> existingProtocolMappers =
+                    resource.getProtocolMappersStream().collect(Collectors.toMap(mapper ->
+                            generateProtocolNameKey(mapper.getProtocol(), mapper.getName()), Function.identity()));
+
 
             for (ProtocolMapperRepresentation protocolMapperRepresentation : rep.getProtocolMappers()) {
                 String protocolNameKey = generateProtocolNameKey(protocolMapperRepresentation.getProtocol(), protocolMapperRepresentation.getName());
@@ -1564,7 +1598,7 @@ public class RepresentationToModel {
     }
 
     public static ClientScopeModel createClientScope(KeycloakSession session, RealmModel realm, ClientScopeRepresentation resourceRep) {
-        logger.debug("Create client scope: {0}" + resourceRep.getName());
+        logger.debugv("Create client scope: {0}", resourceRep.getName());
 
         ClientScopeModel clientScope = resourceRep.getId() != null ? realm.addClientScope(resourceRep.getId(), resourceRep.getName()) : realm.addClientScope(resourceRep.getName());
         if (resourceRep.getName() != null) clientScope.setName(resourceRep.getName());
@@ -1572,8 +1606,7 @@ public class RepresentationToModel {
         if (resourceRep.getProtocol() != null) clientScope.setProtocol(resourceRep.getProtocol());
         if (resourceRep.getProtocolMappers() != null) {
             // first, remove all default/built in mappers
-            Set<ProtocolMapperModel> mappers = clientScope.getProtocolMappers();
-            for (ProtocolMapperModel mapper : mappers) clientScope.removeProtocolMapper(mapper);
+            clientScope.getProtocolMappersStream().collect(Collectors.toList()).forEach(clientScope::removeProtocolMapper);
 
             for (ProtocolMapperRepresentation mapper : resourceRep.getProtocolMappers()) {
                 clientScope.addProtocolMapper(toModel(mapper));
@@ -1735,12 +1768,7 @@ public class RepresentationToModel {
             }
         }
         createCredentials(userRep, session, newRealm, user, false);
-        if (userRep.getFederatedIdentities() != null) {
-            for (FederatedIdentityRepresentation identity : userRep.getFederatedIdentities()) {
-                FederatedIdentityModel mappingModel = new FederatedIdentityModel(identity.getIdentityProvider(), identity.getUserId(), identity.getUserName());
-                session.users().addFederatedIdentity(newRealm, user, mappingModel);
-            }
-        }
+        createFederatedIdentities(userRep, session, newRealm, user);
         createRoleMappings(userRep, user, newRealm);
         if (userRep.getClientConsents() != null) {
             for (UserConsentRepresentation consentRep : userRep.getClientConsents()) {
@@ -1760,8 +1788,12 @@ public class RepresentationToModel {
                 throw new RuntimeException("Unable to find client specified for service account link. Client: " + clientId);
             }
             user.setServiceAccountClientLink(client.getId());
-            ;
         }
+        createGroups(userRep, newRealm, user);
+        return user;
+    }
+
+    public static void createGroups(UserRepresentation userRep, RealmModel newRealm, UserModel user) {
         if (userRep.getGroups() != null) {
             for (String path : userRep.getGroups()) {
                 GroupModel group = KeycloakModelUtils.findGroupByPath(newRealm, path);
@@ -1772,7 +1804,15 @@ public class RepresentationToModel {
                 user.joinGroup(group);
             }
         }
-        return user;
+    }
+
+    public static void createFederatedIdentities(UserRepresentation userRep, KeycloakSession session, RealmModel realm, UserModel user) {
+        if (userRep.getFederatedIdentities() != null) {
+            for (FederatedIdentityRepresentation identity : userRep.getFederatedIdentities()) {
+                FederatedIdentityModel mappingModel = new FederatedIdentityModel(identity.getIdentityProvider(), identity.getUserId(), identity.getUserName());
+                session.users().addFederatedIdentity(realm, user, mappingModel);
+            }
+        }
     }
 
     public static void createCredentials(UserRepresentation userRep, KeycloakSession session, RealmModel realm, UserModel user, boolean adminRequest) {
@@ -1848,10 +1888,10 @@ public class RepresentationToModel {
         }
     }
 
-    private static void importIdentityProviders(RealmRepresentation rep, RealmModel newRealm) {
+    private static void importIdentityProviders(RealmRepresentation rep, RealmModel newRealm, KeycloakSession session) {
         if (rep.getIdentityProviders() != null) {
             for (IdentityProviderRepresentation representation : rep.getIdentityProviders()) {
-                newRealm.addIdentityProvider(toModel(newRealm, representation));
+                newRealm.addIdentityProvider(toModel(newRealm, representation, session));
             }
         }
     }
@@ -1864,8 +1904,20 @@ public class RepresentationToModel {
         }
     }
 
-    public static IdentityProviderModel toModel(RealmModel realm, IdentityProviderRepresentation representation) {
-        IdentityProviderModel identityProviderModel = new IdentityProviderModel();
+    public static IdentityProviderModel toModel(RealmModel realm, IdentityProviderRepresentation representation, KeycloakSession session) {
+        IdentityProviderFactory providerFactory = (IdentityProviderFactory) session.getKeycloakSessionFactory().getProviderFactory(
+                IdentityProvider.class, representation.getProviderId());
+        
+        if (providerFactory == null) {
+            providerFactory = (IdentityProviderFactory) session.getKeycloakSessionFactory().getProviderFactory(
+                    SocialIdentityProvider.class, representation.getProviderId());
+        }
+        
+        if (providerFactory == null) {
+            throw new IllegalArgumentException("Invalid identity provider id [" + representation.getProviderId() + "]");
+        }
+        
+        IdentityProviderModel identityProviderModel = providerFactory.createConfig();
 
         identityProviderModel.setInternalId(representation.getInternalId());
         identityProviderModel.setAlias(representation.getAlias());
@@ -1877,7 +1929,7 @@ public class RepresentationToModel {
         identityProviderModel.setAuthenticateByDefault(representation.isAuthenticateByDefault());
         identityProviderModel.setStoreToken(representation.isStoreToken());
         identityProviderModel.setAddReadTokenRoleOnCreate(representation.isAddReadTokenRoleOnCreate());
-        identityProviderModel.setConfig(new HashMap<>(representation.getConfig()));
+        identityProviderModel.setConfig(removeEmptyString(representation.getConfig()));
 
         String flowAlias = representation.getFirstBrokerLoginFlowAlias();
         if (flowAlias == null) {
@@ -1900,6 +1952,8 @@ public class RepresentationToModel {
             }
             identityProviderModel.setPostBrokerLoginFlowId(flowModel.getId());
         }
+        
+        identityProviderModel.validate(realm);
 
         return identityProviderModel;
     }
@@ -2022,7 +2076,7 @@ public class RepresentationToModel {
 
     public static RequiredActionProviderModel toModel(RequiredActionProviderRepresentation rep) {
         RequiredActionProviderModel model = new RequiredActionProviderModel();
-        model.setConfig(rep.getConfig());
+        model.setConfig(removeEmptyString(rep.getConfig()));
         model.setPriority(rep.getPriority());
         model.setDefaultAction(rep.isDefaultAction());
         model.setEnabled(rep.isEnabled());
@@ -2531,7 +2585,7 @@ public class RepresentationToModel {
             existing.setIconUri(resource.getIconUri());
             existing.setOwnerManagedAccess(Boolean.TRUE.equals(resource.getOwnerManagedAccess()));
             existing.updateScopes(resource.getScopes().stream()
-                    .map((ScopeRepresentation scope) -> toModel(scope, resourceServer, authorization))
+                    .map((ScopeRepresentation scope) -> toModel(scope, resourceServer, authorization, false))
                     .collect(Collectors.toSet()));
             Map<String, List<String>> attributes = resource.getAttributes();
 
@@ -2566,7 +2620,7 @@ public class RepresentationToModel {
         Set<ScopeRepresentation> scopes = resource.getScopes();
 
         if (scopes != null) {
-            model.updateScopes(scopes.stream().map((Function<ScopeRepresentation, Scope>) scope -> toModel(scope, resourceServer, authorization)).collect(Collectors.toSet()));
+            model.updateScopes(scopes.stream().map(scope -> toModel(scope, resourceServer, authorization, false)).collect(Collectors.toSet()));
         }
 
         Map<String, List<String>> attributes = resource.getAttributes();
@@ -2583,6 +2637,10 @@ public class RepresentationToModel {
     }
 
     public static Scope toModel(ScopeRepresentation scope, ResourceServer resourceServer, AuthorizationProvider authorization) {
+        return toModel(scope, resourceServer, authorization, true);
+    }
+    
+    public static Scope toModel(ScopeRepresentation scope, ResourceServer resourceServer, AuthorizationProvider authorization, boolean updateIfExists) {
         StoreFactory storeFactory = authorization.getStoreFactory();
         ScopeStore scopeStore = storeFactory.getScopeStore();
         Scope existing;
@@ -2594,9 +2652,11 @@ public class RepresentationToModel {
         }
 
         if (existing != null) {
-            existing.setName(scope.getName());
-            existing.setDisplayName(scope.getDisplayName());
-            existing.setIconUri(scope.getIconUri());
+            if (updateIfExists) {
+                existing.setName(scope.getName());
+                existing.setDisplayName(scope.getDisplayName());
+                existing.setIconUri(scope.getIconUri());
+            }
             return existing;
         }
 
@@ -2713,7 +2773,7 @@ public class RepresentationToModel {
         }
     }
 
-    private static Map<String, String> removeEmptyString(Map<String, String> map) {
+    public static Map<String, String> removeEmptyString(Map<String, String> map) {
         if (map == null) {
             return null;
         }

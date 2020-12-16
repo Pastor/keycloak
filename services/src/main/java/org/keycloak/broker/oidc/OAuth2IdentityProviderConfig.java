@@ -16,7 +16,12 @@
  */
 package org.keycloak.broker.oidc;
 
+import static org.keycloak.common.util.UriUtils.checkUrl;
+
+import org.keycloak.common.enums.SslRequired;
 import org.keycloak.models.IdentityProviderModel;
+import org.keycloak.models.KeycloakSession;
+import org.keycloak.models.RealmModel;
 import org.keycloak.protocol.oidc.OIDCLoginProtocol;
 
 /**
@@ -26,6 +31,10 @@ public class OAuth2IdentityProviderConfig extends IdentityProviderModel {
 
     public OAuth2IdentityProviderConfig(IdentityProviderModel model) {
         super(model);
+    }
+
+    public OAuth2IdentityProviderConfig() {
+        super();
     }
 
     public String getAuthorizationUrl() {
@@ -83,14 +92,6 @@ public class OAuth2IdentityProviderConfig extends IdentityProviderModel {
     public void setDefaultScope(String defaultScope) {
         getConfig().put("defaultScope", defaultScope);
     }
-
-    public boolean isLoginHint() {
-        return Boolean.valueOf(getConfig().get("loginHint"));
-    }
-
-    public void setLoginHint(boolean loginHint) {
-        getConfig().put("loginHint", String.valueOf(loginHint));
-    }
     
     public boolean isJWTAuthentication() {
         if (getClientAuthMethod().equals(OIDCLoginProtocol.CLIENT_SECRET_JWT)
@@ -122,5 +123,14 @@ public class OAuth2IdentityProviderConfig extends IdentityProviderModel {
 
     public void setForwardParameters(String forwardParameters) {
        getConfig().put("forwardParameters", forwardParameters);
+    }
+
+    @Override
+    public void validate(RealmModel realm) {
+        SslRequired sslRequired = realm.getSslRequired();
+
+        checkUrl(sslRequired, getAuthorizationUrl(), "authorization_url");
+        checkUrl(sslRequired, getTokenUrl(), "token_url");
+        checkUrl(sslRequired, getUserInfoUrl(), "userinfo_url");
     }
 }

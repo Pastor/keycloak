@@ -44,6 +44,29 @@
         "provider": "${keycloak.user.provider:jpa}"
     },
 
+    "client": {
+        "provider": "${keycloak.client.provider:jpa}"
+    },
+
+    "group": {
+        "provider": "${keycloak.group.provider:jpa}"
+    },
+
+    "role": {
+        "provider": "${keycloak.role.provider:jpa}"
+    },
+
+    "authenticationSessions": {
+        "provider": "${keycloak.authSession.provider:infinispan}"
+    },
+
+    "mapStorage": {
+        "provider": "${keycloak.mapStorage.provider:concurrenthashmap}",
+        "concurrenthashmap": {
+            "dir": "${project.build.directory:target}"
+        }
+    },
+
     "userFederatedStorage": {
         "provider": "${keycloak.userFederatedStorage.provider:jpa}"
     },
@@ -140,7 +163,8 @@
             "remoteStoreEnabled": "${keycloak.connectionsInfinispan.remoteStoreEnabled:false}",
             "remoteStoreHost": "${keycloak.connectionsInfinispan.remoteStoreServer:localhost}",
             "remoteStorePort": "${keycloak.connectionsInfinispan.remoteStorePort:11222}",
-            "hotrodProtocolVersion": "${keycloak.connectionsInfinispan.hotrodProtocolVersion}"
+            "hotrodProtocolVersion": "${keycloak.connectionsInfinispan.hotrodProtocolVersion}",
+            "embedded": "${keycloak.connectionsInfinispan.embedded:true}"
         }
     },
 

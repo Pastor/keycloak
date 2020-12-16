@@ -18,8 +18,6 @@ package org.keycloak.services.resources.admin;
 
 import org.jboss.logging.Logger;
 import org.jboss.resteasy.annotations.cache.NoCache;
-import javax.ws.rs.BadRequestException;
-import javax.ws.rs.NotFoundException;
 import org.jboss.resteasy.spi.ResteasyProviderFactory;
 import org.keycloak.authentication.RequiredActionProvider;
 import org.keycloak.authentication.actiontoken.execactions.ExecuteActionsActionToken;
@@ -73,13 +71,16 @@ import org.keycloak.services.resources.account.AccountFormService;
 import org.keycloak.services.resources.admin.permissions.AdminPermissionEvaluator;
 import org.keycloak.services.validation.Validation;
 import org.keycloak.storage.ReadOnlyException;
+import org.keycloak.userprofile.utils.UserUpdateHelper;
+import org.keycloak.userprofile.profile.representations.UserRepresentationUserProfile;
 import org.keycloak.utils.ProfileHelper;
 
+import javax.ws.rs.BadRequestException;
 import javax.ws.rs.Consumes;
 import javax.ws.rs.DELETE;
 import javax.ws.rs.DefaultValue;
 import javax.ws.rs.GET;
-import javax.ws.rs.NotSupportedException;
+import javax.ws.rs.NotFoundException;
 import javax.ws.rs.POST;
 import javax.ws.rs.PUT;
 import javax.ws.rs.Path;
@@ -107,6 +108,7 @@ import java.util.Properties;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 import static org.keycloak.models.ImpersonationSessionNote.IMPERSONATOR_ID;
 import static org.keycloak.models.ImpersonationSessionNote.IMPERSONATOR_USERNAME;
@@ -156,13 +158,6 @@ public class UserResource {
 
         auth.users().requireManage(user);
         try {
-            Set<String> attrsToRemove;
-            if (rep.getAttributes() != null) {
-                attrsToRemove = new HashSet<>(user.getAttributes().keySet());
-                attrsToRemove.removeAll(rep.getAttributes().keySet());
-            } else {
-                attrsToRemove = Collections.emptySet();
-            }
 
             if (rep.isEnabled() != null && rep.isEnabled()) {
                 UserLoginFailureModel failureModel = session.sessions().getUserLoginFailure(realm, user.getId());
@@ -171,7 +166,7 @@ public class UserResource {
                 }
             }
 
-            updateUserFromRep(user, rep, attrsToRemove, realm, session, true);
+            updateUserFromRep(user, rep, session, true);
             RepresentationToModel.createCredentials(rep, session, realm, user, true);
             adminEvent.operation(OperationType.UPDATE).resourcePath(session.getContext().getUri()).representation(rep).success();
 
@@ -185,23 +180,18 @@ public class UserResource {
             return ErrorResponse.exists("User is read only!");
         } catch (ModelException me) {
             logger.warn("Could not update user!", me);
-            return ErrorResponse.exists("Could not update user!");
+            return ErrorResponse.error("Could not update user!", Status.BAD_REQUEST);
         } catch (ForbiddenException fe) {
             throw fe;
         } catch (Exception me) { // JPA
             logger.warn("Could not update user!", me);// may be committed by JTA which can't
-            return ErrorResponse.exists("Could not update user!");
+            return ErrorResponse.error("Could not update user!", Status.BAD_REQUEST);
         }
     }
 
-    public static void updateUserFromRep(UserModel user, UserRepresentation rep, Set<String> attrsToRemove, RealmModel realm, KeycloakSession session, boolean removeMissingRequiredActions) {
-        if (rep.getUsername() != null && realm.isEditUsernameAllowed()) {
-            user.setUsername(rep.getUsername());
-        }
-        if (rep.getEmail() != null) user.setEmail(rep.getEmail());
-        if (rep.getEmail() == "") user.setEmail(null);
-        if (rep.getFirstName() != null) user.setFirstName(rep.getFirstName());
-        if (rep.getLastName() != null) user.setLastName(rep.getLastName());
+    public static void updateUserFromRep(UserModel user, UserRepresentation rep, KeycloakSession session, boolean removeMissingRequiredActions) {
+
+        UserUpdateHelper.updateUserResource(session.getContext().getRealm(), user, new UserRepresentationUserProfile(rep));
 
         if (rep.isEnabled() != null) user.setEnabled(rep.isEnabled());
         if (rep.isEmailVerified() != null) user.setEmailVerified(rep.isEmailVerified());
@@ -233,17 +223,8 @@ public class UserResource {
                 }
             }
         }
-
-        if (rep.getAttributes() != null) {
-            for (Map.Entry<String, List<String>> attr : rep.getAttributes().entrySet()) {
-                user.setAttribute(attr.getKey(), attr.getValue());
-            }
-
-            for (String attr : attrsToRemove) {
-                user.removeAttribute(attr);
-            }
-        }
     }
+
 
     /**
      * Get representation of the user
@@ -259,7 +240,7 @@ public class UserResource {
         UserRepresentation rep = ModelToRepresentation.toRepresentation(session, realm, user);
 
         if (realm.isIdentityFederationEnabled()) {
-            List<FederatedIdentityRepresentation> reps = getFederatedIdentities(user);
+            List<FederatedIdentityRepresentation> reps = getFederatedIdentities(user).collect(Collectors.toList());
             rep.setFederatedIdentities(reps);
         }
 
@@ -305,15 +286,15 @@ public class UserResource {
         userSession.setNote(IMPERSONATOR_USERNAME.toString(), impersonator);
 
         AuthenticationManager.createLoginCookie(session, realm, userSession.getUser(), userSession, session.getContext().getUri(), clientConnection);
-        URI redirect = AccountFormService.accountServiceApplicationPage(session.getContext().getUri()).build(realm.getName());
+        URI redirect = AccountFormService.accountServiceBaseUrl(session.getContext().getUri()).build(realm.getName());
         Map<String, Object> result = new HashMap<>();
         result.put("sameRealm", sameRealm);
         result.put("redirect", redirect.toString());
         event.event(EventType.IMPERSONATE)
-             .session(userSession)
-             .user(user)
-             .detail(Details.IMPERSONATOR_REALM, authenticatedRealm.getName())
-             .detail(Details.IMPERSONATOR, impersonator).success();
+                .session(userSession)
+                .user(user)
+                .detail(Details.IMPERSONATOR_REALM, authenticatedRealm.getName())
+                .detail(Details.IMPERSONATOR, impersonator).success();
 
         return result;
     }
@@ -328,15 +309,9 @@ public class UserResource {
     @GET
     @NoCache
     @Produces(MediaType.APPLICATION_JSON)
-    public List<UserSessionRepresentation> getSessions() {
+    public Stream<UserSessionRepresentation> getSessions() {
         auth.users().requireView(user);
-        List<UserSessionModel> sessions = session.sessions().getUserSessions(realm, user);
-        List<UserSessionRepresentation> reps = new ArrayList<UserSessionRepresentation>();
-        for (UserSessionModel session : sessions) {
-            UserSessionRepresentation rep = ModelToRepresentation.toRepresentation(session);
-            reps.add(rep);
-        }
-        return reps;
+        return session.sessions().getUserSessionsStream(realm, user).map(ModelToRepresentation::toRepresentation);
     }
 
     /**
@@ -344,64 +319,40 @@ public class UserResource {
      *
      * @return
      */
-    @Path("offline-sessions/{clientId}")
+    @Path("offline-sessions/{clientUuid}")
     @GET
     @NoCache
     @Produces(MediaType.APPLICATION_JSON)
-    public List<UserSessionRepresentation> getOfflineSessions(final @PathParam("clientId") String clientId) {
+    public Stream<UserSessionRepresentation> getOfflineSessions(final @PathParam("clientUuid") String clientUuid) {
         auth.users().requireView(user);
-        ClientModel client = realm.getClientById(clientId);
+        ClientModel client = realm.getClientById(clientUuid);
         if (client == null) {
             throw new NotFoundException("Client not found");
         }
-        List<UserSessionModel> sessions = new UserSessionManager(session).findOfflineSessions(realm, user);
-        List<UserSessionRepresentation> reps = new ArrayList<UserSessionRepresentation>();
-        for (UserSessionModel session : sessions) {
-            UserSessionRepresentation rep = ModelToRepresentation.toRepresentation(session);
-
-            // Update lastSessionRefresh with the timestamp from clientSession
-            AuthenticatedClientSessionModel clientSession = session.getAuthenticatedClientSessionByClient(clientId);
-
-            // Skip if userSession is not for this client
-            if (clientSession == null) {
-                continue;
-            }
-
-            rep.setLastAccess(clientSession.getTimestamp());
-
-            reps.add(rep);
-        }
-        return reps;
+        return new UserSessionManager(session).findOfflineSessionsStream(realm, user)
+                .map(session -> toUserSessionRepresentation(session, clientUuid))
+                .filter(Objects::nonNull);
     }
 
     /**
      * Get social logins associated with the user
      *
-     * @return
+     * @return a non-null {@code Stream} of social logins (federated identities).
      */
     @Path("federated-identity")
     @GET
     @NoCache
     @Produces(MediaType.APPLICATION_JSON)
-    public List<FederatedIdentityRepresentation> getFederatedIdentity() {
+    public Stream<FederatedIdentityRepresentation> getFederatedIdentity() {
         auth.users().requireView(user);
-
         return getFederatedIdentities(user);
     }
 
-    private List<FederatedIdentityRepresentation> getFederatedIdentities(UserModel user) {
-        Set<FederatedIdentityModel> identities = session.users().getFederatedIdentities(user, realm);
-        List<FederatedIdentityRepresentation> result = new ArrayList<FederatedIdentityRepresentation>();
-
-        for (FederatedIdentityModel identity : identities) {
-            for (IdentityProviderModel identityProviderModel : realm.getIdentityProviders()) {
-                if (identityProviderModel.getAlias().equals(identity.getIdentityProvider())) {
-                    FederatedIdentityRepresentation rep = ModelToRepresentation.toRepresentation(identity);
-                    result.add(rep);
-                }
-            }
-        }
-        return result;
+    private Stream<FederatedIdentityRepresentation> getFederatedIdentities(UserModel user) {
+        Set<String> idps = realm.getIdentityProvidersStream().map(IdentityProviderModel::getAlias).collect(Collectors.toSet());
+        return session.users().getFederatedIdentitiesStream(user, realm)
+                .filter(identity -> idps.contains(identity.getIdentityProvider()))
+                .map(ModelToRepresentation::toRepresentation);
     }
 
     /**
@@ -451,42 +402,41 @@ public class UserResource {
     @GET
     @NoCache
     @Produces(MediaType.APPLICATION_JSON)
-    public List<Map<String, Object>> getConsents() {
+    public Stream<Map<String, Object>> getConsents() {
         auth.users().requireView(user);
-        List<Map<String, Object>> result = new LinkedList<>();
 
         Set<ClientModel> offlineClients = new UserSessionManager(session).findClientsWithOfflineToken(realm, user);
 
-        for (ClientModel client : realm.getClients()) {
-            UserConsentModel consent = session.users().getConsentByClient(realm, user.getId(), client.getId());
-            boolean hasOfflineToken = offlineClients.contains(client);
+        return realm.getClientsStream()
+                .map(client -> toConsent(client, offlineClients))
+                .filter(Objects::nonNull);
+    }
 
-            if (consent == null && !hasOfflineToken) {
-                continue;
-            }
+    private Map<String, Object> toConsent(ClientModel client, Set<ClientModel> offlineClients) {
+        UserConsentModel consent = session.users().getConsentByClient(realm, user.getId(), client.getId());
+        boolean hasOfflineToken = offlineClients.contains(client);
 
-            UserConsentRepresentation rep = (consent == null) ? null : ModelToRepresentation.toRepresentation(consent);
-
-            Map<String, Object> currentRep = new HashMap<>();
-            currentRep.put("clientId", client.getClientId());
-            currentRep.put("grantedClientScopes", (rep==null ? Collections.emptyList() : rep.getGrantedClientScopes()));
-            currentRep.put("createdDate", (rep==null ? null : rep.getCreatedDate()));
-            currentRep.put("lastUpdatedDate", (rep==null ? null : rep.getLastUpdatedDate()));
-
-            List<Map<String, String>> additionalGrants = new LinkedList<>();
-            if (hasOfflineToken) {
-                Map<String, String> offlineTokens = new HashMap<>();
-                offlineTokens.put("client", client.getId());
-                // TODO: translate
-                offlineTokens.put("key", "Offline Token");
-                additionalGrants.add(offlineTokens);
-            }
-            currentRep.put("additionalGrants", additionalGrants);
-
-            result.add(currentRep);
+        if (consent == null && !hasOfflineToken) {
+            return null;
         }
 
-        return result;
+        UserConsentRepresentation rep = (consent == null) ? null : ModelToRepresentation.toRepresentation(consent);
+
+        Map<String, Object> currentRep = new HashMap<>();
+        currentRep.put("clientId", client.getClientId());
+        currentRep.put("grantedClientScopes", (rep == null ? Collections.emptyList() : rep.getGrantedClientScopes()));
+        currentRep.put("createdDate", (rep == null ? null : rep.getCreatedDate()));
+        currentRep.put("lastUpdatedDate", (rep == null ? null : rep.getLastUpdatedDate()));
+
+        List<Map<String, String>> additionalGrants = new LinkedList<>();
+        if (hasOfflineToken) {
+            Map<String, String> offlineTokens = new HashMap<>();
+            offlineTokens.put("client", client.getId());
+            offlineTokens.put("key", "Offline Token");
+            additionalGrants.add(offlineTokens);
+        }
+        currentRep.put("additionalGrants", additionalGrants);
+        return currentRep;
     }
 
 
@@ -532,10 +482,10 @@ public class UserResource {
 
         session.users().setNotBeforeForUser(realm, user, Time.currentTime());
 
-        List<UserSessionModel> userSessions = session.sessions().getUserSessions(realm, user);
-        for (UserSessionModel userSession : userSessions) {
-            AuthenticationManager.backchannelLogout(session, realm, userSession, session.getContext().getUri(), clientConnection, headers, true);
-        }
+        session.sessions().getUserSessionsStream(realm, user)
+                .collect(Collectors.toList()) // collect to avoid concurrent modification as backchannelLogout removes the user sessions.
+                .forEach(userSession -> AuthenticationManager.backchannelLogout(session, realm, userSession,
+                        session.getContext().getUri(), clientConnection, headers, true));
         adminEvent.operation(OperationType.ACTION).resourcePath(session.getContext().getUri()).success();
     }
 
@@ -575,7 +525,12 @@ public class UserResource {
     @PUT
     @Consumes(MediaType.APPLICATION_JSON)
     public void disableCredentialType(List<String> credentialTypes) {
-        throw new NotSupportedException("Not supported to disable credentials. Only credentials removal is supported");
+        auth.users().requireManage(user);
+        if (credentialTypes == null) return;
+        for (String type : credentialTypes) {
+            session.userCredentialManager().disableCredentialType(realm, user, type);
+
+        }
     }
 
     /**
@@ -602,11 +557,17 @@ public class UserResource {
         } catch (ReadOnlyException mre) {
             throw new BadRequestException("Can't reset password as account is read only");
         } catch (ModelException e) {
+            logger.warn("Could not update user password.", e);
             Properties messages = AdminRoot.getMessages(session, realm, auth.adminAuth().getToken().getLocale());
             throw new ErrorResponseException(e.getMessage(), MessageFormat.format(messages.getProperty(e.getMessage(), e.getMessage()), e.getParameters()),
                     Status.BAD_REQUEST);
         }
-        if (cred.isTemporary() != null && cred.isTemporary()) user.addRequiredAction(UserModel.RequiredAction.UPDATE_PASSWORD);
+        if (cred.isTemporary() != null && cred.isTemporary()) {
+            user.addRequiredAction(UserModel.RequiredAction.UPDATE_PASSWORD);
+        } else {
+            // Remove a potentially existing UPDATE_PASSWORD action when explicitly assigning a non-temporary password.
+            user.removeRequiredAction(UserModel.RequiredAction.UPDATE_PASSWORD);
+        }
 
         adminEvent.operation(OperationType.ACTION).resourcePath(session.getContext().getUri()).success();
     }
@@ -616,11 +577,11 @@ public class UserResource {
     @Path("credentials")
     @NoCache
     @Produces(MediaType.APPLICATION_JSON)
-    public List<CredentialRepresentation> credentials(){
+    public Stream<CredentialRepresentation> credentials(){
         auth.users().requireManage(user);
-        List<CredentialModel> models = session.userCredentialManager().getStoredCredentials(realm, user);
-        models.forEach(c -> c.setSecretData(null));
-        return models.stream().map(ModelToRepresentation::toRepresentation).collect(Collectors.toList());
+        return session.userCredentialManager().getStoredCredentialsStream(realm, user)
+                .peek(model -> model.setSecretData(null))
+                .map(ModelToRepresentation::toRepresentation);
     }
 
 
@@ -634,11 +595,11 @@ public class UserResource {
     @Path("configured-user-storage-credential-types")
     @NoCache
     @Produces(MediaType.APPLICATION_JSON)
-    public List<String> getConfiguredUserStorageCredentialTypes() {
+    public Stream<String> getConfiguredUserStorageCredentialTypes() {
         // This has "requireManage" due the compatibility with "credentials()" endpoint. Strictly said, it is reading endpoint, not writing,
         // so may be revisited if to rather use "requireView" here in the future.
         auth.users().requireManage(user);
-        return session.userCredentialManager().getConfiguredUserStorageCredentialTypes(realm, user);
+        return session.userCredentialManager().getConfiguredUserStorageCredentialTypesStream(realm, user);
     }
 
 
@@ -651,6 +612,12 @@ public class UserResource {
     @NoCache
     public void removeCredential(final @PathParam("credentialId") String credentialId) {
         auth.users().requireManage(user);
+        CredentialModel credential = session.userCredentialManager().getStoredCredentialById(realm, user, credentialId);
+        if (credential == null) {
+            // we do this to make sure somebody can't phish ids
+            if (auth.users().canQuery()) throw new NotFoundException("Credential not found");
+            else throw new ForbiddenException();
+        }
         session.userCredentialManager().removeStoredCredential(realm, user, credentialId);
         adminEvent.operation(OperationType.ACTION).resourcePath(session.getContext().getUri()).success();
     }
@@ -666,7 +633,7 @@ public class UserResource {
         CredentialModel credential = session.userCredentialManager().getStoredCredentialById(realm, user, credentialId);
         if (credential == null) {
             // we do this to make sure somebody can't phish ids
-            if (auth.users().canQuery()) throw new NotFoundException("User not found");
+            if (auth.users().canQuery()) throw new NotFoundException("Credential not found");
             else throw new ForbiddenException();
         }
         session.userCredentialManager().updateCredentialLabel(realm, user, credentialId, userLabel);
@@ -694,7 +661,7 @@ public class UserResource {
         CredentialModel credential = session.userCredentialManager().getStoredCredentialById(realm, user, credentialId);
         if (credential == null) {
             // we do this to make sure somebody can't phish ids
-            if (auth.users().canQuery()) throw new NotFoundException("User not found");
+            if (auth.users().canQuery()) throw new NotFoundException("Credential not found");
             else throw new ForbiddenException();
         }
         session.userCredentialManager().moveCredentialTo(realm, user, credentialId, newPreviousCredentialId);
@@ -808,7 +775,7 @@ public class UserResource {
 
             adminEvent.operation(OperationType.ACTION).resourcePath(session.getContext().getUri()).success();
 
-            return Response.ok().build();
+            return Response.noContent().build();
         } catch (EmailException e) {
             ServicesLogger.LOGGER.failedToSendActionsEmail(e);
             return ErrorResponse.error("Failed to send execute actions email", Status.INTERNAL_SERVER_ERROR);
@@ -839,22 +806,19 @@ public class UserResource {
     @Path("groups")
     @NoCache
     @Produces(MediaType.APPLICATION_JSON)
-    public List<GroupRepresentation> groupMembership(@QueryParam("search") String search,
-                                                     @QueryParam("first") Integer firstResult,
-                                                     @QueryParam("max") Integer maxResults,
-                                                     @QueryParam("briefRepresentation") @DefaultValue("true") boolean briefRepresentation) {
+    public Stream<GroupRepresentation> groupMembership(@QueryParam("search") String search,
+                                                       @QueryParam("first") Integer firstResult,
+                                                       @QueryParam("max") Integer maxResults,
+                                                       @QueryParam("briefRepresentation") @DefaultValue("true") boolean briefRepresentation) {
         auth.users().requireView(user);
-        List<GroupRepresentation> results;
 
         if (Objects.nonNull(search) && Objects.nonNull(firstResult) && Objects.nonNull(maxResults)) {
-            results = ModelToRepresentation.searchForGroupByName(user, !briefRepresentation, search.trim(), firstResult, maxResults);
+            return ModelToRepresentation.searchForGroupByName(user, !briefRepresentation, search.trim(), firstResult, maxResults);
         } else if(Objects.nonNull(firstResult) && Objects.nonNull(maxResults)) {
-            results = ModelToRepresentation.toGroupHierarchy(user, !briefRepresentation, firstResult, maxResults);
+            return ModelToRepresentation.toGroupHierarchy(user, !briefRepresentation, firstResult, maxResults);
         } else {
-            results = ModelToRepresentation.toGroupHierarchy(user, !briefRepresentation);
+            return ModelToRepresentation.toGroupHierarchy(user, !briefRepresentation);
         }
-
-        return results;
     }
 
     @GET
@@ -881,7 +845,7 @@ public class UserResource {
     public void removeMembership(@PathParam("groupId") String groupId) {
         auth.users().requireManageGroupMembership(user);
 
-        GroupModel group = session.realms().getGroupById(groupId, realm);
+        GroupModel group = session.groups().getGroupById(realm, groupId);
         if (group == null) {
             throw new NotFoundException("Group not found");
         }
@@ -904,7 +868,7 @@ public class UserResource {
     @NoCache
     public void joinGroup(@PathParam("groupId") String groupId) {
         auth.users().requireManageGroupMembership(user);
-        GroupModel group = session.realms().getGroupById(groupId, realm);
+        GroupModel group = session.groups().getGroupById(realm, groupId);
         if (group == null) {
             throw new NotFoundException("Group not found");
         }
@@ -915,4 +879,22 @@ public class UserResource {
         }
     }
 
+    /**
+     * Converts the specified {@link UserSessionModel} into a {@link UserSessionRepresentation}.
+     *
+     * @param userSession the model to be converted.
+     * @param clientUuid the client's UUID.
+     * @return a reference to the constructed representation or {@code null} if the session is not associated with the specified
+     * client.
+     */
+    private UserSessionRepresentation toUserSessionRepresentation(final UserSessionModel userSession, final String clientUuid) {
+        UserSessionRepresentation rep = ModelToRepresentation.toRepresentation(userSession);
+        // Update lastSessionRefresh with the timestamp from clientSession
+        AuthenticatedClientSessionModel clientSession = userSession.getAuthenticatedClientSessionByClient(clientUuid);
+        if (clientSession == null) {
+            return null;
+        }
+        rep.setLastAccess(clientSession.getTimestamp());
+        return rep;
+    }
 }

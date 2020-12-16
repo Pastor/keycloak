@@ -26,6 +26,7 @@ import org.keycloak.models.KeycloakSession;
 import org.keycloak.models.ProtocolMapperModel;
 import org.keycloak.models.RealmModel;
 import org.keycloak.models.RoleModel;
+import org.keycloak.models.utils.DefaultRequiredActions;
 import org.keycloak.models.utils.KeycloakModelUtils;
 import org.keycloak.representations.idm.RealmRepresentation;
 
@@ -46,7 +47,7 @@ public class MigrateTo9_0_0 implements Migration {
 
     @Override
     public void migrate(KeycloakSession session) {
-        session.realms().getRealms().stream().forEach(realm -> migrateRealmCommon(realm));
+        session.realms().getRealmsStream().forEach(this::migrateRealmCommon);
     }
 
     @Override
@@ -57,6 +58,8 @@ public class MigrateTo9_0_0 implements Migration {
     protected void migrateRealmCommon(RealmModel realm) {
         addAccountConsoleClient(realm);
         addAccountApiRoles(realm);
+        enablePkceAdminAccountClients(realm);
+        DefaultRequiredActions.addUpdateLocaleAction(realm);
     }
 
     private void addAccountApiRoles(RealmModel realm) {
@@ -90,7 +93,8 @@ public class MigrateTo9_0_0 implements Migration {
 
             client.setProtocol("openid-connect");
 
-            client.addScopeMapping(realm.getClientByClientId(Constants.ACCOUNT_MANAGEMENT_CLIENT_ID).getRole(AccountRoles.MANAGE_ACCOUNT));
+            RoleModel role = realm.getClientByClientId(Constants.ACCOUNT_MANAGEMENT_CLIENT_ID).getRole(AccountRoles.MANAGE_ACCOUNT);
+            if (role != null) client.addScopeMapping(role);
 
             ProtocolMapperModel audienceMapper = new ProtocolMapperModel();
             audienceMapper.setName("audience resolve");
@@ -100,4 +104,17 @@ public class MigrateTo9_0_0 implements Migration {
             client.addProtocolMapper(audienceMapper);
         }
     }
+
+    private void enablePkceAdminAccountClients(RealmModel realm) {
+        ClientModel adminConsole = realm.getClientByClientId(Constants.ADMIN_CONSOLE_CLIENT_ID);
+        if (adminConsole != null) {
+            adminConsole.setAttribute("pkce.code.challenge.method", "S256");
+        }
+
+        ClientModel accountConsole = realm.getClientByClientId(Constants.ACCOUNT_CONSOLE_CLIENT_ID);
+        if (accountConsole != null) {
+            accountConsole.setAttribute("pkce.code.challenge.method", "S256");
+        }
+    }
+
 }

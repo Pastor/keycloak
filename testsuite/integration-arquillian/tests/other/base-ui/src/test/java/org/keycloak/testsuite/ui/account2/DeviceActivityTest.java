@@ -26,6 +26,7 @@ import org.keycloak.models.RealmModel;
 import org.keycloak.models.UserModel;
 import org.keycloak.models.UserSessionModel;
 import org.keycloak.representations.idm.RealmRepresentation;
+import org.keycloak.representations.idm.UserRepresentation;
 import org.keycloak.testsuite.ui.account2.page.AbstractLoggedInPage;
 import org.keycloak.testsuite.ui.account2.page.DeviceActivityPage;
 import org.keycloak.testsuite.util.ClientBuilder;
@@ -33,13 +34,17 @@ import org.keycloak.testsuite.util.OAuthClient;
 
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
+import java.time.format.DateTimeParseException;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 
 import static org.hamcrest.Matchers.containsInAnyOrder;
+import static org.hamcrest.Matchers.either;
+import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.hasItem;
 import static org.hamcrest.Matchers.hasProperty;
 import static org.hamcrest.Matchers.is;
@@ -48,8 +53,10 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertThat;
 import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.fail;
 import static org.keycloak.representations.idm.CredentialRepresentation.PASSWORD;
 import static org.keycloak.testsuite.auth.page.AuthRealm.TEST;
+import static org.keycloak.testsuite.util.UIUtils.refreshPageAndWaitForLoad;
 
 /**
  * @author Vaclav Muzikar <vmuzikar@redhat.com>
@@ -99,6 +106,7 @@ public class DeviceActivityTest extends BaseAccountPageTest {
         ));
 
         realm.setAccountTheme(LOCALIZED_THEME_PREVIEW); // using localized custom theme for the client localized name
+        configureInternationalizationForRealm(testRealms.get(0));
     }
 
     @Before
@@ -132,7 +140,7 @@ public class DeviceActivityTest extends BaseAccountPageTest {
         assertEquals(3, deviceActivityPage.getSessionsCount());
 
         DeviceActivityPage.Session currentSession = deviceActivityPage.getSessionByIndex(0); // current session should be first
-        assertSessionRowsAreNotEmpty(currentSession,  false);
+        assertSessionRowsAreNotEmpty(currentSession, false);
         assertTrue("Browser identification should be present", currentSession.isBrowserDisplayed());
         assertTrue("Current session badge should be present", currentSession.hasCurrentBadge());
         assertFalse("Icon should be present", currentSession.getBrowserIconName().isEmpty());
@@ -194,9 +202,11 @@ public class DeviceActivityTest extends BaseAccountPageTest {
 
     @Test
     public void timesTests() {
-        DateTimeFormatter formatter = DateTimeFormatter.ofPattern("EEEE, MMMM d, yyyy h:mm a", Locale.ENGLISH);
+        DateTimeFormatter formatter = DateTimeFormatter.ofPattern("MMMM d, yyyy, h:mm a", Locale.ENGLISH);
         LocalDateTime now = LocalDateTime.now();
+        LocalDateTime nowPlus1 = now.plusMinutes(1);
         String nowStr = now.format(formatter);
+        String nowStrPlus1 = nowPlus1.format(formatter);
 
         String sessionId = createSession(Browsers.CHROME);
 
@@ -219,10 +229,31 @@ public class DeviceActivityTest extends BaseAccountPageTest {
         assertTrue("Last access should be after started at", lastAccessed.isAfter(startedAt));
         assertTrue("Expires at should be after last access", expiresAt.isAfter(lastAccessed));
         assertTrue("Last accessed should be in the future", lastAccessed.isAfter(now));
-        assertEquals(nowStr, startedAtStr);
+        assertThat(startedAtStr, either(equalTo(nowStr)).or(equalTo(nowStrPlus1)));
 
         int ssoLifespan = testRealmResource().toRepresentation().getSsoSessionMaxLifespan();
         assertEquals(startedAt.plusSeconds(ssoLifespan), expiresAt);
+    }
+
+    @Test
+    public void timeLocaleTest() {
+        String sessionId = createSession(Browsers.CHROME);
+        UserRepresentation user = testUserResource().toRepresentation();
+        final Locale locale = Locale.GERMAN;
+        user.setAttributes(new HashMap<String, List<String>>() {{
+            put("locale", Collections.singletonList(locale.toLanguageTag()));
+        }});
+        testUserResource().update(user);
+
+        refreshPageAndWaitForLoad();
+
+        DateTimeFormatter formatter = DateTimeFormatter.ofPattern("d. MMMM yyyy, H:mm", locale);
+        DeviceActivityPage.Session session = deviceActivityPage.getSession(sessionId);
+        try {
+            LocalDateTime.parse(session.getLastAccess(), formatter);
+        } catch (DateTimeParseException e) {
+            fail("Time was not formatted with the locale");
+        }
     }
 
     @Test
@@ -235,7 +266,7 @@ public class DeviceActivityTest extends BaseAccountPageTest {
             ClientModel client = session.clientLocalStorage().getClientByClientId(TEST_CLIENT_ID, realm);
             UserModel user = session.users().getUserByUsername("test", realm); // cannot use testUser.getUsername() because it throws NotSerializableException for no apparent reason (or maybe I'm just stupid :D)
 
-            UserSessionModel userSession = session.sessions().createUserSession(sessionId, realm, user, "test", ip, "form", false, null, null);
+            UserSessionModel userSession = session.sessions().createUserSession(sessionId, realm, user, "test", ip, "form", false, null, null, null);
             session.sessions().createClientSession(realm, client, userSession);
         });
 
@@ -251,8 +282,7 @@ public class DeviceActivityTest extends BaseAccountPageTest {
             // using direct grant not to use current browser
             res = oauth.doGrantAccessTokenRequest(
                     TEST, testUser.getUsername(), PASSWORD, null, TEST_CLIENT_ID, TEST_CLIENT_SECRET, browser.userAgent);
-        }
-        catch (Exception e) {
+        } catch (Exception e) {
             throw new RuntimeException(e);
         }
         return res.getSessionState(); // session id
@@ -263,8 +293,7 @@ public class DeviceActivityTest extends BaseAccountPageTest {
         assertTrue("Session should be present", session.isPresent());
         if (browser.sessionBrowser != null) {
             assertEquals(browser.sessionBrowser, session.getBrowser());
-        }
-        else {
+        } else {
             assertFalse("Browser identification shouldn't be present", session.isBrowserDisplayed());
         }
         assertEquals(browser.iconName, session.getBrowserIconName());
@@ -272,7 +301,7 @@ public class DeviceActivityTest extends BaseAccountPageTest {
         assertSessionRowsAreNotEmpty(session, true);
     }
 
-    private void assertSessionRowsAreNotEmpty(DeviceActivityPage.Session session, boolean expectSignOutPresent){
+    private void assertSessionRowsAreNotEmpty(DeviceActivityPage.Session session, boolean expectSignOutPresent) {
         assertFalse("IP address shouldn't be empty", session.getIp().isEmpty());
         assertFalse("Last accessed shouldn't be empty", session.getLastAccess().isEmpty());
         assertFalse("Started shouldn't be empty", session.getStarted().isEmpty());

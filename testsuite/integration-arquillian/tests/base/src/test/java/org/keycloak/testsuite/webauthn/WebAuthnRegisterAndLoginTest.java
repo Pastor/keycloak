@@ -24,10 +24,12 @@ import org.junit.Test;
 import org.keycloak.WebAuthnConstants;
 import org.keycloak.authentication.requiredactions.WebAuthnRegisterFactory;
 import org.keycloak.authentication.requiredactions.WebAuthnPasswordlessRegisterFactory;
+import org.keycloak.common.Profile;
 import org.keycloak.common.util.RandomString;
 import org.keycloak.events.Details;
 import org.keycloak.events.EventType;
 import org.keycloak.models.credential.WebAuthnCredentialModel;
+import org.keycloak.models.credential.dto.WebAuthnCredentialData;
 import org.keycloak.representations.idm.CredentialRepresentation;
 import org.keycloak.representations.idm.EventRepresentation;
 import org.keycloak.representations.idm.RealmRepresentation;
@@ -36,22 +38,27 @@ import org.keycloak.testsuite.AssertEvents;
 import org.keycloak.testsuite.admin.AbstractAdminTest;
 import org.keycloak.testsuite.AbstractTestRealmKeycloakTest;
 import org.keycloak.testsuite.admin.ApiUtil;
+import org.keycloak.testsuite.arquillian.annotation.EnableFeature;
 import org.keycloak.testsuite.pages.LoginPage;
 import org.keycloak.testsuite.pages.RegisterPage;
 import org.keycloak.testsuite.pages.webauthn.WebAuthnLoginPage;
 import org.keycloak.testsuite.pages.webauthn.WebAuthnRegisterPage;
+import org.keycloak.util.JsonSerialization;
 import org.keycloak.testsuite.WebAuthnAssume;
 import org.keycloak.testsuite.pages.AppPage;
 import org.keycloak.testsuite.pages.AppPage.RequestType;
 
 import static org.junit.Assert.assertEquals;
 
+import java.io.IOException;
 import java.util.Arrays;
 import java.util.List;
+
 import org.junit.Assume;
 import org.junit.BeforeClass;
-import static org.keycloak.testsuite.arquillian.AuthServerTestEnricher.AUTH_SERVER_SSL_REQUIRED;
+import static org.keycloak.testsuite.util.ServerURLs.AUTH_SERVER_SSL_REQUIRED;
 
+@EnableFeature(value = Profile.Feature.WEB_AUTHN, skipRestart = true, onlyForProduct = true)
 public class WebAuthnRegisterAndLoginTest extends AbstractTestRealmKeycloakTest {
 
     @Rule
@@ -156,6 +163,7 @@ public class WebAuthnRegisterAndLoginTest extends AbstractTestRealmKeycloakTest 
                 .assertEvent().getSessionId();
             // confirm user registered
             assertUserRegistered(userId, username.toLowerCase(), email.toLowerCase());
+            assertRegisteredCredentials(userId, ALL_ZERO_AAGUID, "none");
 
             // logout by user
             appPage.logout();
@@ -294,8 +302,27 @@ public class WebAuthnRegisterAndLoginTest extends AbstractTestRealmKeycloakTest 
         assertEquals("lastName", user.getLastName());
     }
 
+    private void assertRegisteredCredentials(String userId, String aaguid, String attestationStatementFormat) {
+        List<CredentialRepresentation> credentials = getCredentials(userId);
+        credentials.stream().forEach(i -> {
+            if (WebAuthnCredentialModel.TYPE_TWOFACTOR.equals(i.getType())) {
+                try {
+                    WebAuthnCredentialData data = JsonSerialization.readValue(i.getCredentialData(), WebAuthnCredentialData.class);
+                    assertEquals(aaguid, data.getAaguid());
+                    assertEquals(attestationStatementFormat, data.getAttestationStatementFormat());
+                } catch (IOException e) {
+                    Assert.fail();
+                }
+            }
+        });
+    }
+
     protected UserRepresentation getUser(String userId) {
         return testRealm().users().get(userId).toRepresentation();
+    }
+
+    protected List<CredentialRepresentation> getCredentials(String userId) {
+        return testRealm().users().get(userId).credentials();
     }
 
     private RealmRepresentation backupWebAuthnRealmSettings() {

@@ -70,7 +70,7 @@ public class JPAResourceStore implements ResourceStore {
         }
 
         entity.setName(name);
-        entity.setResourceServer(ResourceServerAdapter.toEntity(entityManager, resourceServer));
+        entity.setResourceServer(ResourceServerAdapter.toEntity(entityManager, resourceServer).getId());
         entity.setOwner(owner);
 
         this.entityManager.persist(entity);
@@ -145,15 +145,7 @@ public class JPAResourceStore implements ResourceStore {
         }
 
         ResourceStore resourceStore = provider.getStoreFactory().getResourceStore();
-        List<ResourceEntity> result = query.getResultList();
-
-        for (ResourceEntity entity : result) {
-            Resource cached = resourceStore.findById(entity.getId(), resourceServerId);
-            
-            if (cached != null) {
-                consumer.accept(cached);
-            }
-        }
+        query.getResultStream().map(id -> resourceStore.findById(id.getId(), resourceServerId)).forEach(consumer);
     }
 
     @Override
@@ -209,7 +201,7 @@ public class JPAResourceStore implements ResourceStore {
         List<Predicate> predicates = new ArrayList();
 
         if (resourceServerId != null) {
-            predicates.add(builder.equal(root.get("resourceServer").get("id"), resourceServerId));
+            predicates.add(builder.equal(root.get("resourceServer"), resourceServerId));
         }
 
         attributes.forEach((name, value) -> {

@@ -54,6 +54,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
+import static org.hamcrest.CoreMatchers.hasItem;
+import static org.hamcrest.CoreMatchers.startsWith;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
@@ -125,7 +127,6 @@ public class PartialImportTest extends AbstractAuthTest {
         ClientRepresentation client = new ClientRepresentation();
         client.setClientId(CLIENT_ROLES_CLIENT);
         client.setName(CLIENT_ROLES_CLIENT);
-        client.setRootUrl("foo");
         client.setProtocol("openid-connect");
         try (Response resp = testRealmResource().clients().create(client)) {
 
@@ -140,7 +141,7 @@ public class PartialImportTest extends AbstractAuthTest {
         ClientRepresentation client = new ClientRepresentation();
         client.setClientId(CLIENT_SERVICE_ACCOUNT);
         client.setName(CLIENT_SERVICE_ACCOUNT);
-        client.setRootUrl("foo");
+        client.setRootUrl("http://localhost/foo");
         client.setProtocol("openid-connect");
         client.setPublicClient(false);
         client.setSecret("secret");
@@ -274,7 +275,6 @@ public class PartialImportTest extends AbstractAuthTest {
             ClientRepresentation client = new ClientRepresentation();
             client.setClientId(CLIENT_PREFIX + i);
             client.setName(CLIENT_PREFIX + i);
-            client.setRootUrl("foo");
             clients.add(client);
             if (withServiceAccounts) {
                 client.setServiceAccountsEnabled(true);
@@ -378,8 +378,8 @@ public class PartialImportTest extends AbstractAuthTest {
             String id = result.getId();
             UserResource userRsc = testRealmResource().users().get(id);
             UserRepresentation user = userRsc.toRepresentation();
-            assertTrue(user.getUsername().startsWith(USER_PREFIX));
-            Assert.assertTrue(userIds.contains(id));
+            Assert.assertThat(user.getUsername(), startsWith(USER_PREFIX));
+            Assert.assertThat(userIds, hasItem(id));
         }
     }
 
