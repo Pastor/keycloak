@@ -4,7 +4,7 @@
     <parent>
         <groupId>org.keycloak</groupId>
         <artifactId>keycloak-testsuite-pom</artifactId>
-        <version>12.0.0-SNAPSHOT</version>
+        <version>13.0.0-SNAPSHOT</version>
         <relativePath>../pom.xml</relativePath>
     </parent>
 
@@ -137,9 +137,23 @@
         </profile>
 
         <profile>
+            <id>jpa-federation-backward+infinispan</id>
+            <properties>
+                <keycloak.model.parameters>Infinispan,JpaFederation,BackwardsCompatibilityUserStorage</keycloak.model.parameters>
+            </properties>
+        </profile>
+
+        <profile>
             <id>jpa-federation</id>
             <properties>
                 <keycloak.model.parameters>JpaFederation,TestsuiteUserMapStorage</keycloak.model.parameters>
+            </properties>
+        </profile>
+
+        <profile>
+            <id>jpa-federation-backward</id>
+            <properties>
+                <keycloak.model.parameters>JpaFederation,BackwardsCompatibilityUserStorage</keycloak.model.parameters>
             </properties>
         </profile>
 

@@ -17,6 +17,7 @@
 package org.keycloak.testsuite.model;
 
 import org.keycloak.component.ComponentModel;
+import org.keycloak.models.Constants;
 import org.keycloak.models.GroupModel;
 import org.keycloak.models.KeycloakSession;
 import org.keycloak.models.RealmModel;
@@ -67,6 +68,7 @@ public class UserModelTest extends KeycloakModelTest {
     @Override
     public void createEnvironment(KeycloakSession s) {
         RealmModel realm = s.realms().createRealm("realm");
+        realm.setDefaultRole(s.roles().addRealmRole(realm, Constants.DEFAULT_ROLES_ROLE_PREFIX + "-" + realm.getName()));
         this.realmId = realm.getId();
 
         IntStream.range(0, NUM_GROUPS).forEach(i -> {
@@ -88,7 +90,7 @@ public class UserModelTest extends KeycloakModelTest {
             user.joinGroup(session.groups().getGroupById(realm, groupIds.get((i + gIndex) % NUM_GROUPS)));
         });
 
-        final UserModel obtainedUser = session.users().getUserById(user.getId(), realm);
+        final UserModel obtainedUser = session.users().getUserById(realm, user.getId());
 
         assertThat(obtainedUser, Matchers.notNullValue());
         assertThat(obtainedUser.getUsername(), is("user-" + i));
@@ -99,7 +101,7 @@ public class UserModelTest extends KeycloakModelTest {
 
         assertTrue(session.users().removeUser(realm, user));
         assertFalse(session.users().removeUser(realm, user));
-        assertNull(session.users().getUserByUsername(user.getUsername(), realm));
+        assertNull(session.users().getUserByUsername(realm, user.getUsername()));
     }
 
     @Test
@@ -136,7 +138,7 @@ public class UserModelTest extends KeycloakModelTest {
         do {
             userIds.stream().parallel().forEach(index -> inComittedTransaction(index, (session, userId) -> {
                 final RealmModel realm = session.realms().getRealm(realmId);
-                final UserModel user = session.users().getUserById(userId, realm);
+                final UserModel user = session.users().getUserById(realm, userId);
                 log.debugf("Remove user %s: %s", userId, session.users().removeUser(realm, user));
             }, null, (session, userId) -> remainingUserIds.add(userId) ));
 
@@ -167,7 +169,7 @@ public class UserModelTest extends KeycloakModelTest {
             final RealmModel realm = session.realms().getRealm(realmId);
             final UserStorageProvider instance = getUserFederationInstance(session, realm);
             log.debugf("Removing selected users from backend");
-            final UserModel user = session.users().getUserByUsername("user-A", realm);
+            final UserModel user = session.users().getUserByUsername(realm, "user-A");
             ((UserRegistrationProvider) instance).removeUser(realm, user);
         });
 
@@ -176,7 +178,7 @@ public class UserModelTest extends KeycloakModelTest {
             if (session.userCache() != null) {
                 session.userCache().clear();
             }
-            final UserModel user = session.users().getUserByUsername("user-A", realm);
+            final UserModel user = session.users().getUserByUsername(realm, "user-A");
             assertThat("User should not be found in the main store", user, Matchers.nullValue());
         });
     }
@@ -204,7 +206,7 @@ public class UserModelTest extends KeycloakModelTest {
             UserStorageProvider instance = getUserFederationInstance(session, realm);
             log.debugf("Removing selected users from backend");
             IntStream.range(FIRST_DELETED_USER_INDEX, LAST_DELETED_USER_INDEX).forEach(j -> {
-                final UserModel user = session.users().getUserByUsername("user-" + j, realm);
+                final UserModel user = session.users().getUserByUsername(realm, "user-" + j);
                 ((UserRegistrationProvider) instance).removeUser(realm, user);
             });
         });
@@ -215,6 +217,18 @@ public class UserModelTest extends KeycloakModelTest {
             assertThat(session.users().getGroupMembersStream(realm, group).count(), is(100L - DELETED_USER_COUNT));
         }));
 
+        inComittedTransaction(1, (session, i) -> {
+            // If we are using cache, we need to invalidate all users because after removing users from external
+            // provider cache may not be cleared and it may be the case, that cache is the only place that is having 
+            // a reference to removed users. Our importValidation method won't be called at all for removed users
+            // because they are not present in any storage. However, when we get users by id cache may still be hit
+            // since it is not alerted in any way when users are removed from external provider. Hence we need to clear
+            // the cache manually.
+            if (session.userCache() != null) {
+                session.userCache().clear();
+            }
+        });
+
         // Now delete the users, and count those that were not found to be deleted. This should be equal to the number
         // of users removed directly in the user federation.
         // Some of the transactions may fail due to conflicts as there are many parallel request, so repeat until all users are removed
@@ -223,7 +237,7 @@ public class UserModelTest extends KeycloakModelTest {
         do {
             userIds.stream().parallel().forEach(index -> inComittedTransaction(index, (session, userId) -> {
                 final RealmModel realm = session.realms().getRealm(realmId);
-                final UserModel user = session.users().getUserById(userId, realm);
+                final UserModel user = session.users().getUserById(realm, userId);
                 if (user != null) {
                     log.debugf("Deleting user: %s", userId);
                     session.users().removeUser(realm, user);

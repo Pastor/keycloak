@@ -245,6 +245,13 @@ public abstract class MapClientAdapter extends AbstractClientModel<MapClientEnti
 
     @Override
     public void setAttribute(String name, String value) {
+        boolean valueUndefined = value == null || "".equals(value.trim());
+
+        if (valueUndefined) {
+            removeAttribute(name);
+            return;
+        }
+
         entity.setAttribute(name, value);
     }
 
@@ -454,22 +461,35 @@ public abstract class MapClientAdapter extends AbstractClientModel<MapClientEnti
     /*************** Default roles ****************/
 
     @Override
+    @Deprecated
     public Stream<String> getDefaultRolesStream() {
-        return entity.getDefaultRoles().stream();
+        return realm.getDefaultRole().getCompositesStream().filter(this::isClientRole).map(RoleModel::getName);
+    }
+
+    private boolean isClientRole(RoleModel role) {
+        return role.isClientRole() && Objects.equals(role.getContainerId(), this.getId());
     }
 
     @Override
+    @Deprecated
     public void addDefaultRole(String name) {
+        realm.getDefaultRole().addCompositeRole(getOrAddRoleId(name));
+    }
+
+    private RoleModel getOrAddRoleId(String name) {
         RoleModel role = getRole(name);
         if (role == null) {
-            addRole(name);
+            role = addRole(name);
         }
-        this.entity.addDefaultRole(name);
+        return role;
     }
 
     @Override
+    @Deprecated
     public void removeDefaultRoles(String... defaultRoles) {
-        this.entity.removeDefaultRoles(defaultRoles);
+        for (String defaultRole : defaultRoles) {
+            realm.getDefaultRole().removeCompositeRole(getRole(defaultRole));
+        }
     }
 
     /*************** Protocol mappers ****************/
@@ -527,5 +547,10 @@ public abstract class MapClientAdapter extends AbstractClientModel<MapClientEnti
           .filter(pm -> Objects.equals(pm.getProtocol(), protocol) && Objects.equals(pm.getName(), name))
           .findAny()
           .orElse(null);
+    }
+
+    @Override
+    public String toString() {
+        return String.format("%s@%08x", getClientId(), System.identityHashCode(this));
     }
 }

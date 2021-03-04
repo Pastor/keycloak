@@ -401,10 +401,8 @@ public class ModelToRepresentation {
         if (realm.getClientAuthenticationFlow() != null) rep.setClientAuthenticationFlow(realm.getClientAuthenticationFlow().getAlias());
         if (realm.getDockerAuthenticationFlow() != null) rep.setDockerAuthenticationFlow(realm.getDockerAuthenticationFlow().getAlias());
 
-        List<String> defaultRoles = realm.getDefaultRolesStream().collect(Collectors.toList());
-        if (!defaultRoles.isEmpty()) {
-            rep.setDefaultRoles(defaultRoles);
-        }
+        rep.setDefaultRole(toBriefRepresentation(realm.getDefaultRole()));
+
         List<String> defaultGroups = realm.getDefaultGroupsStream()
                 .map(ModelToRepresentation::buildGroupPath).collect(Collectors.toList());
         if (!defaultGroups.isEmpty()) {
@@ -603,11 +601,6 @@ public class ModelToRepresentation {
         Set<String> webOrigins = clientModel.getWebOrigins();
         if (webOrigins != null) {
             rep.setWebOrigins(new LinkedList<>(webOrigins));
-        }
-
-        String[] defaultRoles = clientModel.getDefaultRolesStream().toArray(String[]::new);
-        if (defaultRoles.length > 0) {
-            rep.setDefaultRoles(defaultRoles);
         }
 
         if (!clientModel.getRegisteredNodes().isEmpty()) {
@@ -892,7 +885,7 @@ public class ModelToRepresentation {
             ClientModel clientModel = realm.getClientById(resourceServer);
             owner.setName(clientModel.getClientId());
         } else {
-            UserModel userModel = keycloakSession.users().getUserById(owner.getId(), realm);
+            UserModel userModel = keycloakSession.users().getUserById(realm, owner.getId());
 
             if (userModel == null) {
                 throw new RuntimeException("Could not find the user [" + owner.getId() + "] who owns the Resource [" + resource.getId() + "].");
@@ -941,8 +934,8 @@ public class ModelToRepresentation {
             representation.setResourceName(resource.getName());
             KeycloakSession keycloakSession = authorization.getKeycloakSession();
             RealmModel realm = authorization.getRealm();
-            UserModel userOwner = keycloakSession.users().getUserById(ticket.getOwner(), realm);
-            UserModel requester = keycloakSession.users().getUserById(ticket.getRequester(), realm);
+            UserModel userOwner = keycloakSession.users().getUserById(realm, ticket.getOwner());
+            UserModel requester = keycloakSession.users().getUserById(realm, ticket.getRequester());
             representation.setRequesterName(requester.getUsername());
             if (userOwner != null) {
                 representation.setOwnerName(userOwner.getUsername());
