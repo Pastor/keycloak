@@ -47,12 +47,11 @@ import org.keycloak.testsuite.Assert;
 import org.keycloak.testsuite.AssertEvents;
 import org.keycloak.testsuite.admin.AbstractAdminTest;
 import org.keycloak.testsuite.admin.ApiUtil;
-import org.keycloak.testsuite.arquillian.AuthServerTestEnricher;
 import org.keycloak.testsuite.arquillian.annotation.AuthServerContainerExclude;
 import org.keycloak.testsuite.arquillian.annotation.AuthServerContainerExclude.AuthServer;
 import org.keycloak.testsuite.auth.page.AuthRealm;
 import org.keycloak.testsuite.client.KeycloakTestingClient;
-import org.keycloak.testsuite.events.EventsListenerProviderFactory;
+import org.keycloak.testsuite.events.TestEventsListenerProviderFactory;
 import org.keycloak.testsuite.runonserver.RunHelpers;
 import org.keycloak.testsuite.updaters.Creator;
 import org.keycloak.testsuite.util.AdminEventPaths;
@@ -72,6 +71,7 @@ import java.util.*;
 import java.util.stream.Collectors;
 
 import static org.hamcrest.Matchers.containsInAnyOrder;
+import static org.hamcrest.Matchers.notNullValue;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
@@ -79,6 +79,7 @@ import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertThat;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
+import static org.keycloak.testsuite.util.ServerURLs.getAuthServerContextRoot;
 
 /**
  * @author <a href="mailto:sthorger@redhat.com">Stian Thorgersen</a>
@@ -158,6 +159,32 @@ public class RealmTest extends AbstractAdminTest {
         Assert.assertNames(adminClient.realms().findAll(), "master", AuthRealm.TEST, REALM_NAME);
     }
 
+    @Test(expected = BadRequestException.class)
+    public void createRealmRejectReservedChar() {
+        RealmRepresentation rep = new RealmRepresentation();
+        rep.setRealm("new-re;alm");
+        adminClient.realms().create(rep);
+    }
+
+    /**
+     * Checks attributes exposed as fields are not also included as attributes
+     */
+    @Test
+    public void excludesFieldsFromAttributes() {
+        RealmRepresentation rep = new RealmRepresentation();
+        rep.setRealm("attributes");
+
+        adminClient.realms().create(rep);
+
+        try {
+            RealmRepresentation rep2 = adminClient.realm("attributes").toRepresentation();
+
+            assertTrue("Attributes was expected to be empty, but was: " + String.join(", ", rep2.getAttributes().keySet()), rep2.getAttributes().isEmpty());
+        } finally {
+            adminClient.realm("attributes").remove();
+        }
+    }
+
     @Test
     public void smtpPasswordSecret() {
         RealmRepresentation rep = RealmBuilder.create().testEventListener().testMail().build();
@@ -213,12 +240,15 @@ public class RealmTest extends AbstractAdminTest {
     @Test
     public void createRealmFromJson() {
         RealmRepresentation rep = loadJson(getClass().getResourceAsStream("/admin-test/testrealm.json"), RealmRepresentation.class);
-        adminClient.realms().create(rep);
+        try {
+            adminClient.realms().create(rep);
 
-        RealmRepresentation created = adminClient.realms().realm("admin-test-1").toRepresentation();
-        assertRealm(rep, created);
+            RealmRepresentation created = adminClient.realms().realm("admin-test-1").toRepresentation();
+            assertRealm(rep, created);
 
-        adminClient.realms().realm("admin-test-1").remove();
+        } finally {
+            adminClient.realms().realm("admin-test-1").remove();
+        }
     }
 
     //KEYCLOAK-6146
@@ -272,7 +302,7 @@ public class RealmTest extends AbstractAdminTest {
     public void loginAfterRemoveRealm() {
         realm.remove();
 
-        try (Keycloak client = Keycloak.getInstance(AuthServerTestEnricher.getAuthServerContextRoot() + "/auth", "master", "admin", "admin", Constants.ADMIN_CLI_CLIENT_ID, TLSUtils.initializeTLS())) {
+        try (Keycloak client = Keycloak.getInstance(getAuthServerContextRoot() + "/auth", "master", "admin", "admin", Constants.ADMIN_CLI_CLIENT_ID, TLSUtils.initializeTLS())) {
             client.serverInfo().getInfo();
         }
 
@@ -291,12 +321,12 @@ public class RealmTest extends AbstractAdminTest {
         realm1 = adminClient.realms().realm("test-immutable").toRepresentation();
         realm1.setRealm("test-immutable-old");
         adminClient.realms().realm("test-immutable").update(realm1);
-        realm1 = adminClient.realms().realm("test-immutable-old").toRepresentation();
+        assertThat(adminClient.realms().realm("test-immutable-old").toRepresentation(), notNullValue());
 
         RealmRepresentation realm2 = new RealmRepresentation();
         realm2.setRealm("test-immutable");
         adminClient.realms().create(realm2);
-        realm2 = adminClient.realms().realm("test-immutable").toRepresentation();
+        assertThat(adminClient.realms().realm("test-immutable").toRepresentation(), notNullValue());
 
         adminClient.realms().realm("test-immutable-old").remove();
         adminClient.realms().realm("test-immutable").remove();
@@ -331,7 +361,7 @@ public class RealmTest extends AbstractAdminTest {
         RealmEventsConfigRepresentation repOrig = copyRealmEventsConfigRepresentation(rep);
 
         // the "event-queue" listener should be enabled by default
-        assertTrue("event-queue should be enabled initially", rep.getEventsListeners().contains(EventsListenerProviderFactory.PROVIDER_ID));
+        assertTrue("event-queue should be enabled initially", rep.getEventsListeners().contains(TestEventsListenerProviderFactory.PROVIDER_ID));
 
         // first modification => remove "event-queue", should be sent to the queue
         rep.setEnabledEventTypes(Arrays.asList(EventType.LOGIN.name(), EventType.LOGIN_ERROR.name()));
@@ -360,6 +390,13 @@ public class RealmTest extends AbstractAdminTest {
         checkRealmEventsConfigRepresentation(repOrig, actual);
     }
 
+    @Test(expected = BadRequestException.class)
+    public void updateRealmWithReservedCharInName() {
+        RealmRepresentation rep = realm.toRepresentation();
+        rep.setRealm("fo#o");
+        realm.update(rep);
+    }
+    
     @Test
     public void updateRealm() {
         // first change
@@ -497,14 +534,12 @@ public class RealmTest extends AbstractAdminTest {
         realm.roles().create(role);
         assertAdminEvents.assertEvent(realmId, OperationType.CREATE, AdminEventPaths.roleResourcePath("test"), role, ResourceType.REALM_ROLE);
 
-        assertNotNull(realm.roles().get("test").toRepresentation());
+        role = realm.roles().get("test").toRepresentation();
+        assertNotNull(role);
 
-        RealmRepresentation rep = realm.toRepresentation();
-        rep.setDefaultRoles(new LinkedList<String>());
-        rep.getDefaultRoles().add("test");
+        realm.roles().get(Constants.DEFAULT_ROLES_ROLE_PREFIX + "-" + REALM_NAME).addComposites(Collections.singletonList(role));
 
-        realm.update(rep);
-        assertAdminEvents.assertEvent(realmId, OperationType.UPDATE, Matchers.nullValue(String.class), rep, ResourceType.REALM);
+        assertAdminEvents.assertEvent(realmId, OperationType.CREATE, AdminEventPaths.roleResourceCompositesPath(Constants.DEFAULT_ROLES_ROLE_PREFIX + "-" + REALM_NAME), Collections.singletonList(role), ResourceType.REALM_ROLE);
 
         realm.roles().deleteRole("test");
         assertAdminEvents.assertEvent(realmId, OperationType.DELETE, AdminEventPaths.roleResourcePath("test"), ResourceType.REALM_ROLE);
@@ -587,6 +622,14 @@ public class RealmTest extends AbstractAdminTest {
         if (realm.getSsoSessionMaxLifespan() != null) assertEquals(realm.getSsoSessionMaxLifespan(), storedRealm.getSsoSessionMaxLifespan());
         if (realm.getSsoSessionIdleTimeoutRememberMe() != null) Assert.assertEquals(realm.getSsoSessionIdleTimeoutRememberMe(), storedRealm.getSsoSessionIdleTimeoutRememberMe());
         if (realm.getSsoSessionMaxLifespanRememberMe() != null) Assert.assertEquals(realm.getSsoSessionMaxLifespanRememberMe(), storedRealm.getSsoSessionMaxLifespanRememberMe());
+        if (realm.getClientSessionIdleTimeout() != null)
+            Assert.assertEquals(realm.getClientSessionIdleTimeout(), storedRealm.getClientSessionIdleTimeout());
+        if (realm.getClientSessionMaxLifespan() != null)
+            Assert.assertEquals(realm.getClientSessionMaxLifespan(), storedRealm.getClientSessionMaxLifespan());
+        if (realm.getClientOfflineSessionIdleTimeout() != null)
+            Assert.assertEquals(realm.getClientOfflineSessionIdleTimeout(), storedRealm.getClientOfflineSessionIdleTimeout());
+        if (realm.getClientOfflineSessionMaxLifespan() != null)
+            Assert.assertEquals(realm.getClientOfflineSessionMaxLifespan(), storedRealm.getClientOfflineSessionMaxLifespan());
         if (realm.getRequiredCredentials() != null) {
             assertNotNull(storedRealm.getRequiredCredentials());
             for (String cred : realm.getRequiredCredentials()) {
@@ -599,13 +642,6 @@ public class RealmTest extends AbstractAdminTest {
         if (realm.getEmailTheme() != null) assertEquals(realm.getEmailTheme(), storedRealm.getEmailTheme());
 
         if (realm.getPasswordPolicy() != null) assertEquals(realm.getPasswordPolicy(), storedRealm.getPasswordPolicy());
-
-        if (realm.getDefaultRoles() != null) {
-            assertNotNull(storedRealm.getDefaultRoles());
-            for (String role : realm.getDefaultRoles()) {
-                assertTrue(storedRealm.getDefaultRoles().contains(role));
-            }
-        }
 
         if (realm.getSmtpServer() != null) {
             assertEquals(realm.getSmtpServer(), storedRealm.getSmtpServer());

@@ -115,6 +115,23 @@ public class AuthorizationCodeTest extends AbstractKeycloakTest {
     }
 
     @Test
+    public void testInvalidRedirectUri() {
+        ClientManager.realm(adminClient.realm("test")).clientId("test-app").addRedirectUris(oauth.getRedirectUri());
+
+        oauth.redirectUri(oauth.getRedirectUri() + "%20test");
+        oauth.openLoginForm();
+
+        assertTrue(errorPage.isCurrent());
+        assertEquals("Invalid parameter: redirect_uri", errorPage.getError());
+
+        oauth.redirectUri("ZAP%25n%25s%25n%25s%25n%25s%25n%25s%25n%25s%25n%25s%25n%25s%25n%25s%25n%25s%25n%25s%25n%25s%25n%25s%25n%25s%25n%25s%25n%25s%25n%25s%25n%25s%25n%25s%25n%25s%25n%25s%0A");
+        oauth.openLoginForm();
+
+        assertTrue(errorPage.isCurrent());
+        assertEquals("Invalid parameter: redirect_uri", errorPage.getError());
+    }
+
+    @Test
     public void authorizationRequestNoState() throws IOException {
         oauth.stateParamHardcoded(null);
 
@@ -209,9 +226,9 @@ public class AuthorizationCodeTest extends AbstractKeycloakTest {
         oauth.stateParamHardcoded("OpenIdConnect.AuthenticationProperties=2302984sdlk");
         Map<String, String> extraParams = new HashMap<>();
 
-        oauth.addCustomerParameter(OAuth2Constants.SCOPE, "read_write")
-            .addCustomerParameter(OAuth2Constants.STATE, "abcdefg")
-            .addCustomerParameter(OAuth2Constants.SCOPE, "pop push");
+        oauth.addCustomParameter(OAuth2Constants.SCOPE, "read_write")
+            .addCustomParameter(OAuth2Constants.STATE, "abcdefg")
+            .addCustomParameter(OAuth2Constants.SCOPE, "pop push");
 
         oauth.openLoginForm();
 
@@ -225,11 +242,11 @@ public class AuthorizationCodeTest extends AbstractKeycloakTest {
     public void authorizationRequestClientParamsMoreThanOnce() throws IOException {
         oauth.stateParamHardcoded("OpenIdConnect.AuthenticationProperties=2302984sdlk");
 
-        oauth.addCustomerParameter(OAuth2Constants.SCOPE, "read_write")
-                .addCustomerParameter(OAuth2Constants.CLIENT_ID, "client2client")
-                .addCustomerParameter(OAuth2Constants.REDIRECT_URI, "https://www.example.com")
-                .addCustomerParameter(OAuth2Constants.STATE, "abcdefg")
-                .addCustomerParameter(OAuth2Constants.SCOPE, "pop push");
+        oauth.addCustomParameter(OAuth2Constants.SCOPE, "read_write")
+                .addCustomParameter(OAuth2Constants.CLIENT_ID, "client2client")
+                .addCustomParameter(OAuth2Constants.REDIRECT_URI, "https://www.example.com")
+                .addCustomParameter(OAuth2Constants.STATE, "abcdefg")
+                .addCustomParameter(OAuth2Constants.SCOPE, "pop push");
 
         oauth.openLoginForm();
 

@@ -21,7 +21,7 @@
     <parent>
         <groupId>org.keycloak.testsuite</groupId>
         <artifactId>integration-arquillian-tests</artifactId>
-        <version>9.0.0-SNAPSHOT</version>
+        <version>13.0.0-SNAPSHOT</version>
     </parent>
     <modelVersion>4.0.0</modelVersion>
 
@@ -42,6 +42,8 @@
         <exclude.cluster>**/cluster/**/*Test.java</exclude.cluster>
         <exclude.crossdc>**/crossdc/**/*Test.java</exclude.crossdc>
         <mvel.version>2.4.0.Final</mvel.version>
+        <systemrules.version>1.19.0</systemrules.version>
+        <common.resources>${basedir}/../../servers/auth-server/jboss/common</common.resources>
     </properties>
     
     <dependencies>
@@ -101,6 +103,10 @@
             <artifactId>guava</artifactId>
         </dependency>
         <dependency>
+            <groupId>org.keycloak</groupId>
+            <artifactId>keycloak-model-map</artifactId>
+        </dependency>
+        <dependency>
             <groupId>org.keycloak.testsuite</groupId>
             <artifactId>integration-arquillian-servers-app-server-spi</artifactId>
             <version>${project.version}</version>
@@ -121,6 +127,21 @@
             <groupId>org.mvel</groupId>
             <artifactId>mvel2</artifactId>
             <version>${mvel.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.maven.resolver</groupId>
+            <artifactId>maven-resolver-api</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.jboss</groupId>
+            <artifactId>jandex</artifactId>
+            <version>2.1.3.Final</version>
+        </dependency>
+        <dependency>
+            <groupId>com.github.stefanbirkner</groupId>
+            <artifactId>system-rules</artifactId>
+            <version>${systemrules.version}</version>
+            <scope>test</scope>
         </dependency>
     </dependencies>
     
@@ -150,7 +171,27 @@
                     </execution>
                 </executions>
             </plugin>
-            
+
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-antrun-plugin</artifactId>
+                <executions>
+                    <execution>
+                        <phase>process-test-resources</phase>
+                        <goals>
+                            <goal>run</goal>
+                        </goals>
+                        <configuration>
+                            <target>
+                                <delete>
+                                    <fileset dir="${project.build.directory}" includes="map-*.json"/>
+                                </delete>
+                            </target>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>                        
+
             <plugin>
                 <artifactId>maven-surefire-plugin</artifactId>
                 <configuration>
@@ -185,9 +226,11 @@
                                     <directory>src/test/resources</directory>
                                     <includes>
                                         <include>arquillian.xml</include>
+                                        <include>wildfly-config.xml</include>
                                         <include>password-blacklists/**</include>
                                         <include>log4j.properties</include>
                                         <include>vault/**</include>
+                                        <include>firefox-cookies-prefs.js</include>
                                     </includes>
                                     <!--<filtering>true</filtering>-->
                                 </resource>
@@ -346,26 +389,80 @@
                 </executions>
             </plugin>
 
-            <!-- DB will be released after the test -->
-            <plugin>
-                <groupId>org.keycloak</groupId>
-                <artifactId>db-allocator-plugin</artifactId>
-                <inherited>false</inherited>
-                <executions>
-                    <execution>
-                        <id>release-db</id>
-                        <goals>
-                            <goal>release</goal>
-                        </goals>
-                    </execution>
-                </executions>
-            </plugin>
-
         </plugins>
 
     </build>
 
     <profiles>
+        <profile>
+            <id>auth-server-remote</id>
+            <build>
+                <plugins>
+                    <plugin>
+                        <artifactId>maven-resources-plugin</artifactId>
+                        <executions>
+                            <execution>
+                                <id>copy-keystore</id>
+                                <phase>process-resources</phase>
+                                <goals>
+                                    <goal>copy-resources</goal>
+                                </goals>
+                                <configuration>
+                                    <outputDirectory>${project.build.directory}/containers/auth-server-remote</outputDirectory>
+                                    <resources>
+                                        <resource>
+                                            <directory>${common.resources}/keystore</directory>
+                                            <includes>
+                                                <include>keycloak.jks</include>
+                                                <include>keycloak.truststore</include>
+                                                <include>client.jks</include>
+                                                <include>client-ca.jks</include>
+                                                <include>test-user-cert-intermediary-ca.jks</include>
+                                                <include>ca.crt</include>
+                                                <include>client.crt</include>
+                                                <include>client.key</include>
+                                                <include>*.crl</include>
+                                                <!-- KEYCLOAK-6771 Certificate Bound Token -->
+                                                <include>other_client.jks</include>
+                                            </includes>
+                                        </resource>
+                                        <resource>
+                                            <directory>${common.resources}/pki/root/ca</directory>
+                                            <includes>
+                                                <include>certs/clients/test-user-san@localhost.cert.pem</include>
+                                                <include>certs/clients/test-user@localhost.key.pem</include>
+                                            </includes>
+                                        </resource>
+                                    </resources>
+                                </configuration>
+                            </execution>
+                        </executions>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
+
+        <profile>
+            <id>jpa</id>
+            <build>
+                <plugins>
+                    <!-- DB will be released after the test -->
+                    <plugin>
+                        <groupId>org.keycloak</groupId>
+                        <artifactId>db-allocator-plugin</artifactId>
+                        <inherited>false</inherited>
+                        <executions>
+                            <execution>
+                                <id>release-db</id>
+                                <goals>
+                                    <goal>release</goal>
+                                </goals>
+                            </execution>
+                        </executions>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
         <profile>
             <id>product</id>
             <activation>
@@ -656,6 +753,12 @@
                     <artifactId>wildfly-cli</artifactId>
                     <scope>test</scope>
                     <version>2.0.10.Final</version>
+                    <exclusions>
+                        <exclusion>
+                            <groupId>org.jboss.modules</groupId>
+                            <artifactId>jboss-modules</artifactId>  
+                        </exclusion>
+                    </exclusions>
                 </dependency>
             </dependencies>
             <build>
@@ -718,9 +821,9 @@
                         </goals>
                         <configuration>
                             <rules>
-                                <requireProperty>	
-                                    <message>When running fuse tests 'additional.fuse.repos' is expected to be set.</message>	
-                                    <property>additional.fuse.repos</property>	
+                                <requireProperty>
+                                    <message>When running fuse tests 'additional.fuse.repos' is expected to be set.</message>
+                                    <property>additional.fuse.repos</property>
                                 </requireProperty>
                             </rules>
                         </configuration>
@@ -793,9 +896,9 @@
                         </goals>
                         <configuration>
                             <rules>
-                                <requireProperty>	
-                                    <message>When running fuse tests 'additional.fuse.repos' is expected to be set.</message>	
-                                    <property>additional.fuse.repos</property>	
+                                <requireProperty>
+                                    <message>When running fuse tests 'additional.fuse.repos' is expected to be set.</message>
+                                    <property>additional.fuse.repos</property>
                                 </requireProperty>
                             </rules>
                         </configuration>
@@ -832,6 +935,7 @@
                 <app.server.port.offset>0</app.server.port.offset>
                 <app.server.http.port>8080</app.server.http.port>
                 <app.server.management.port>9990</app.server.management.port>
+                <app.server.keystore.dir>${app.server.home}/lib</app.server.keystore.dir>
             </properties>
             <dependencies>
                 <dependency>
@@ -865,6 +969,7 @@
                 <app.server.port.offset>0</app.server.port.offset>
                 <app.server.http.port>8080</app.server.http.port>
                 <app.server.management.port>9990</app.server.management.port>
+                <app.server.keystore.dir>${app.server.home}/lib</app.server.keystore.dir>
             </properties>
             <dependencies>
                 <dependency>
@@ -898,6 +1003,7 @@
                 <app.server.port.offset>0</app.server.port.offset>
                 <app.server.http.port>8080</app.server.http.port>
                 <app.server.management.port>9990</app.server.management.port>
+                <app.server.keystore.dir>${app.server.home}/lib</app.server.keystore.dir>
             </properties>
             <dependencies>
                 <dependency>
@@ -932,6 +1038,143 @@
                 <exclude.crossdc>-</exclude.crossdc>
                 <surefire.memory.Xmx>1024m</surefire.memory.Xmx>
             </properties>
+        </profile>
+
+        <profile>
+            <id>generate-certs-for-custom-app-server-host</id>
+            <activation>
+                <property>
+                    <name>app.server.host</name>
+                </property>
+            </activation>
+            <build>
+                <pluginManagement>
+                    <plugins>
+                        <plugin>
+                            <groupId>org.codehaus.mojo</groupId>
+                            <artifactId>keytool-maven-plugin</artifactId>
+                            <executions>
+                                <execution>
+                                    <id>remove-old-app-server-key</id>
+                                    <phase>generate-test-resources</phase>
+                                    <goals>
+                                        <goal>deleteAlias</goal>
+                                    </goals>
+                                    <configuration>
+                                        <keystore>${app.server.keystore}</keystore>
+                                        <storepass>${app.server.keystore.password}</storepass>
+                                        <alias>localhost3</alias>
+                                        <skip>${app.server.skip.unpack}</skip>
+                                    </configuration>
+                                </execution>
+                                <execution>
+                                    <id>generate-new-app-server-cert</id>
+                                    <phase>generate-test-resources</phase>
+                                    <goals>
+                                        <goal>generateKeyPair</goal>
+                                    </goals>
+                                    <configuration>
+                                        <keystore>${app.server.keystore}</keystore>
+                                        <storepass>${app.server.keystore.password}</storepass>
+                                        <alias>${app.server.host}</alias>
+                                        <dname>CN=${app.server.host}, OU=Keycloak, O=Red Hat, L=Westword, ST=MA, C=US</dname>
+                                        <keyalg>RSA</keyalg>
+                                        <keysize>2048</keysize>
+                                        <sigalg>SHA256withRSA</sigalg>
+                                    </configuration>
+                                </execution>
+                                <execution>
+                                    <id>export-app-server-cert</id>
+                                    <phase>generate-test-resources</phase>
+                                    <goals>
+                                        <goal>exportCertificate</goal>
+                                    </goals>
+                                    <configuration>
+                                        <keystore>${app.server.keystore}</keystore>
+                                        <storepass>${app.server.keystore.password}</storepass>
+                                        <alias>${app.server.host}</alias>
+                                        <file>${dependency.keystore.root}/${app.server.host}.pem</file>
+                                    </configuration>
+                                </execution>
+                                <execution>
+                                    <id>import-app-server-cert-to-truststore</id>
+                                    <phase>generate-test-resources</phase>
+                                    <goals>
+                                        <goal>importCertificate</goal>
+                                    </goals>
+                                    <configuration>
+                                        <keystore>${dependency.truststore}</keystore>
+                                        <storepass>${dependency.truststore.password}</storepass>
+                                        <alias>${app.server.host}</alias>
+                                        <file>${dependency.keystore.root}/${app.server.host}.pem</file>
+                                        <trustcacerts>true</trustcacerts>
+                                        <noprompt>true</noprompt>
+                                    </configuration>
+                                </execution>
+                            </executions>
+                        </plugin>
+                        <plugin>
+                            <artifactId>maven-resources-plugin</artifactId>
+                            <executions>
+                                <execution>
+                                    <id>copy-processed-truststore-to-app-server</id>
+                                    <phase>process-test-resources</phase>
+                                    <goals>
+                                        <goal>copy-resources</goal>
+                                    </goals>
+                                    <configuration>
+                                        <outputDirectory>${app.server.keystore.dir}</outputDirectory>
+                                        <resources>
+                                            <resource>
+                                                <directory>${dependency.keystore.root}</directory>
+                                            </resource>
+                                        </resources>
+                                        <overwrite>true</overwrite>
+                                        <skip>${app.server.skip.unpack}</skip>
+                                    </configuration>
+                                </execution>
+                                <execution>
+                                    <id>copy-processed-truststore-to-secured-deployment-app-server-config</id>
+                                    <phase>process-test-resources</phase>
+                                    <goals>
+                                        <goal>copy-resources</goal>
+                                    </goals>
+                                    <configuration>
+                                        <outputDirectory>${app.server.home}/standalone-secured-deployments/configuration</outputDirectory>
+                                        <resources>
+                                            <resource>
+                                                <directory>${dependency.keystore.root}</directory>
+                                            </resource>
+                                        </resources>
+                                        <overwrite>true</overwrite>
+                                        <skip>${app.server.skip.unpack}</skip>
+                                    </configuration>
+                                </execution>
+                                <execution>
+                                    <id>copy-processed-keystore-to-secured-deployment-app-server-config</id>
+                                    <phase>process-test-resources</phase>
+                                    <goals>
+                                        <goal>copy-resources</goal>
+                                    </goals>
+                                    <configuration>
+                                        <outputDirectory>${app.server.home}/standalone-secured-deployments/configuration</outputDirectory>
+                                        <resources>
+                                            <resource>
+                                                <directory>${app.server.keystore.dir}</directory>
+                                                <includes>
+                                                    <include>adapter.jks</include>
+                                                </includes>
+                                            </resource>
+                                        </resources>
+                                        <overwrite>true</overwrite>
+                                        <skip>${app.server.skip.unpack}</skip>
+                                    </configuration>
+                                </execution>
+                            </executions>
+                        </plugin>
+                    </plugins>
+                </pluginManagement>
+            </build>
         </profile>
     </profiles>
 

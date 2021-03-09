@@ -82,6 +82,10 @@ public interface UserResource {
                                      @QueryParam("max") Integer maxResults,
                                      @QueryParam("briefRepresentation") @DefaultValue("true") boolean briefRepresentation);
 
+    @Path("groups/count")
+    @GET
+    Map<String, Long> groupsCount(@QueryParam("search") String search);
+
     @Path("groups/{groupId}")
     @PUT
     void joinGroup(@PathParam("groupId") String groupId);
@@ -154,14 +158,14 @@ public interface UserResource {
      * Disables or deletes all credentials for specific types.
      * Type examples "otp", "password"
      *
-     * This endpoint is deprecated as it is not supported to disable credentials, just delete them
+     * This is typically supported just for the users backed by user storage providers. See {@link UserRepresentation#getDisableableCredentialTypes()}
+     * to see what credential types can be disabled for the particular user
      *
      * @param credentialTypes
      */
     @Path("disable-credential-types")
     @PUT
     @Consumes(MediaType.APPLICATION_JSON)
-    @Deprecated
     void disableCredentialType(List<String> credentialTypes);
 
     @PUT

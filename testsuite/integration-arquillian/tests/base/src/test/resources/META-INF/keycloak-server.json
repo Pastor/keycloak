@@ -44,6 +44,33 @@
         "provider": "${keycloak.user.provider:jpa}"
     },
 
+    "client": {
+        "provider": "${keycloak.client.provider:jpa}"
+    },
+
+    "clientScope": {
+        "provider": "${keycloak.clientScope.provider:jpa}"
+    },
+
+    "group": {
+        "provider": "${keycloak.group.provider:jpa}"
+    },
+
+    "role": {
+        "provider": "${keycloak.role.provider:jpa}"
+    },
+
+    "authenticationSessions": {
+        "provider": "${keycloak.authSession.provider:infinispan}"
+    },
+
+    "mapStorage": {
+        "provider": "${keycloak.mapStorage.provider:concurrenthashmap}",
+        "concurrenthashmap": {
+            "dir": "${project.build.directory:target}"
+        }
+    },
+
     "userFederatedStorage": {
         "provider": "${keycloak.userFederatedStorage.provider:jpa}"
     },
@@ -101,7 +128,7 @@
 
     "connectionsHttpClient": {
         "default": {
-            "max-connection-idle-time-millis": 1000
+            "max-connection-idle-time-millis": 100
         }
     },
 
@@ -140,7 +167,8 @@
             "remoteStoreEnabled": "${keycloak.connectionsInfinispan.remoteStoreEnabled:false}",
             "remoteStoreHost": "${keycloak.connectionsInfinispan.remoteStoreServer:localhost}",
             "remoteStorePort": "${keycloak.connectionsInfinispan.remoteStorePort:11222}",
-            "hotrodProtocolVersion": "${keycloak.connectionsInfinispan.hotrodProtocolVersion}"
+            "hotrodProtocolVersion": "${keycloak.connectionsInfinispan.hotrodProtocolVersion}",
+            "embedded": "${keycloak.connectionsInfinispan.embedded:true}"
         }
     },
 
@@ -168,6 +196,13 @@
                 "https=${auth.server.https.port}"
             ]
 	}
+    },
+
+    "userProfile": {
+        "legacy-user-profile": {
+            "read-only-attributes": [ "deniedFoo", "deniedBar*", "deniedSome/thing", "deniedsome*thing" ],
+            "admin-read-only-attributes": [ "deniedSomeAdmin" ]
+        }
     },
 
     "x509cert-lookup": {

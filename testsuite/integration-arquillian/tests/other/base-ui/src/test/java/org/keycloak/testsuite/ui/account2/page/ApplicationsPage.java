@@ -25,6 +25,8 @@ import org.openqa.selenium.support.FindBy;
 import java.util.ArrayList;
 import java.util.List;
 
+import static org.keycloak.testsuite.util.WaitUtils.waitUntilElement;
+
 /**
  * @author Vaclav Muzikar <vmuzikar@redhat.com>
  */
@@ -38,8 +40,9 @@ public class ApplicationsPage extends AbstractLoggedInPage {
     }
 
     public void toggleApplicationDetails(String clientId) {
-        WebElement expandButton = driver.findElement(By.xpath("//button[@id='application-toggle-" + clientId + "']"));
-        expandButton.click();
+        By selector = By.xpath("//button[@id='application-toggle-" + clientId + "']");
+        waitUntilElement(selector).is().clickable();
+        driver.findElement(selector).click();
     }
 
     public List<ClientRepresentation> getApplications() {
@@ -55,9 +58,9 @@ public class ApplicationsPage extends AbstractLoggedInPage {
         String clientName = UIUtils.getTextFromElement(app.findElement(By.xpath("//div[@id='application-name-" + clientId + "']")));
         boolean userConsentRequired = !UIUtils.getTextFromElement(app.findElement(By.xpath("//div[@id='application-internal-" + clientId + "']"))).equals("Internal");
         boolean inUse = UIUtils.getTextFromElement(app.findElement(By.xpath("//div[@id='application-status-" + clientId + "']"))).equals("In use");
-        String baseURL = UIUtils.getTextFromElement(app.findElement(By.xpath("//div[@id='application-baseurl-" + clientId + "']")));
         boolean applicationDetailsVisible = app.findElement(By.xpath("//section[@id='application-expandable-" + clientId + "']")).isDisplayed();
-        return new ClientRepresentation(clientId, clientName, userConsentRequired, inUse, baseURL, applicationDetailsVisible);
+        String effectiveURL = UIUtils.getTextFromElement(app.findElement(By.xpath("//span[@id='application-effectiveurl-" + clientId + "']")));
+        return new ClientRepresentation(clientId, clientName, userConsentRequired, inUse, effectiveURL, applicationDetailsVisible);
     }
 
     public class ClientRepresentation {
@@ -65,15 +68,15 @@ public class ApplicationsPage extends AbstractLoggedInPage {
         private final String clientName;
         private final boolean userConsentRequired;
         private final boolean inUse;
-        private final String baseUrl;
+        private final String effectiveUrl;
         private final boolean applicationDetailsVisible;
 
-        public ClientRepresentation(String clientId, String clientName, boolean userConsentRequired, boolean inUse, String baseUrl, boolean applicationDetailsVisible) {
+        public ClientRepresentation(String clientId, String clientName, boolean userConsentRequired, boolean inUse, String effectiveUrl, boolean applicationDetailsVisible) {
             this.clientId = clientId;
             this.clientName = clientName;
             this.userConsentRequired = userConsentRequired;
             this.inUse = inUse;
-            this.baseUrl = baseUrl;
+            this.effectiveUrl = effectiveUrl;
             this.applicationDetailsVisible = applicationDetailsVisible;
         }
 
@@ -92,9 +95,9 @@ public class ApplicationsPage extends AbstractLoggedInPage {
         public boolean isInUse() {
             return inUse;
         }
-
-        public String getBaseUrl() {
-            return baseUrl;
+        
+        public String getEffectiveUrl() {
+            return effectiveUrl;
         }
 
         public boolean isApplicationDetailsVisible() {

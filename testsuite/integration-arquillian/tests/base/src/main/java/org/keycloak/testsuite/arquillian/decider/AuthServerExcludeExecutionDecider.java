@@ -23,6 +23,7 @@ import org.jboss.arquillian.test.spi.execution.ExecutionDecision;
 import org.jboss.arquillian.test.spi.execution.TestExecutionDecider;
 import org.jboss.arquillian.core.api.Instance;
 import org.jboss.arquillian.core.api.annotation.Inject;
+import org.keycloak.testsuite.arquillian.AppServerTestEnricher;
 import org.keycloak.testsuite.arquillian.AuthServerTestEnricher;
 import org.keycloak.testsuite.arquillian.TestContext;
 import org.keycloak.testsuite.arquillian.annotation.AuthServerContainerExclude;
@@ -39,6 +40,9 @@ public class AuthServerExcludeExecutionDecider implements TestExecutionDecider {
 
     @Override
     public ExecutionDecision decide(Method method) {
+        if (AppServerTestEnricher.isRemoteAppServer()) {
+            return ExecutionDecision.execute();
+        }
         TestContext testContext = testContextInstance.get();
 
         if (method.isAnnotationPresent(AuthServerContainerExclude.class)) {
@@ -47,11 +51,19 @@ public class AuthServerExcludeExecutionDecider implements TestExecutionDecider {
             if (AuthServerTestEnricher.isAuthServerRemote() && excluded.contains(AuthServer.REMOTE)) {
                 return ExecutionDecision.dontExecute("Excluded by @AuthServerContainerExclude.");
             }
+
+            if (AuthServerTestEnricher.isAuthServerQuarkus() && excluded.contains(AuthServer.QUARKUS)) {
+                return ExecutionDecision.dontExecute("Excluded by @AuthServerContainerExclude.");
+            }
         } else { //class
             if (testContext.getTestClass().isAnnotationPresent(AuthServerContainerExclude.class)) {
                 List<AuthServer> excluded = Arrays.asList(((AuthServerContainerExclude) testContext.getTestClass().getAnnotation(AuthServerContainerExclude.class)).value());
                 
                 if (AuthServerTestEnricher.isAuthServerRemote() && excluded.contains(AuthServer.REMOTE)) {
+                    return ExecutionDecision.dontExecute("Excluded by @AuthServerContainerExclude.");
+                }
+
+                if (AuthServerTestEnricher.isAuthServerQuarkus() && excluded.contains(AuthServer.QUARKUS)) {
                     return ExecutionDecision.dontExecute("Excluded by @AuthServerContainerExclude.");
                 }
             }

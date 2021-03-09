@@ -17,7 +17,6 @@
 package org.keycloak.testsuite.adapter.example.authorization;
 
 import javax.ws.rs.client.Client;
-import javax.ws.rs.client.ClientBuilder;
 import javax.ws.rs.client.Entity;
 import javax.ws.rs.core.HttpHeaders;
 import javax.ws.rs.core.MediaType;
@@ -32,6 +31,7 @@ import org.jboss.shrinkwrap.api.spec.WebArchive;
 import org.junit.Assert;
 import org.junit.Test;
 import org.keycloak.testsuite.arquillian.annotation.AppServerContainer;
+import org.keycloak.testsuite.util.AdminClientUtil;
 import org.keycloak.testsuite.util.OAuthClient;
 import org.keycloak.testsuite.utils.arquillian.ContainerConstants;
 
@@ -45,8 +45,6 @@ import org.keycloak.testsuite.utils.arquillian.ContainerConstants;
 @AppServerContainer(ContainerConstants.APP_SERVER_UNDERTOW)
 @AppServerContainer(ContainerConstants.APP_SERVER_EAP71)
 @AppServerContainer(ContainerConstants.APP_SERVER_TOMCAT7)
-@AppServerContainer(ContainerConstants.APP_SERVER_TOMCAT8)
-@AppServerContainer(ContainerConstants.APP_SERVER_TOMCAT9)
 public class ServletAuthzCIPAdapterTest extends AbstractServletAuthzAdapterTest {
 
     @Deployment(name = RESOURCE_SERVER_ID, managed = false)
@@ -56,6 +54,8 @@ public class ServletAuthzCIPAdapterTest extends AbstractServletAuthzAdapterTest 
     }
 
     @Test
+    @AppServerContainer(ContainerConstants.APP_SERVER_TOMCAT8)
+    @AppServerContainer(ContainerConstants.APP_SERVER_TOMCAT9)
     public void testClaimInformationPoint() {
         performTests(() -> {
             login("alice", "alice");
@@ -76,11 +76,12 @@ public class ServletAuthzCIPAdapterTest extends AbstractServletAuthzAdapterTest 
     }
 
     @Test
+    // This test doesn't work with Tomcat, because KEYCLOAK-11712 was done only for wildfly
     public void testReuseBodyAfterClaimProcessing() {
         performTests(() -> {
             OAuthClient.AccessTokenResponse response = oauth.realm("servlet-authz").clientId("servlet-authz-app")
                     .doGrantAccessTokenRequest("secret", "alice", "alice");
-            Client client = ClientBuilder.newClient();
+            Client client = AdminClientUtil.createResteasyClient();
             Map<String, String> body = new HashMap();
             
             body.put("test", "test-value");

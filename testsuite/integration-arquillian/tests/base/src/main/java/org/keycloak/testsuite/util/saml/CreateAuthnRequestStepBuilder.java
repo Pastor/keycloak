@@ -16,6 +16,9 @@
  */
 package org.keycloak.testsuite.util.saml;
 
+import org.keycloak.common.util.Base64;
+import org.keycloak.representations.idm.UserRepresentation;
+import org.keycloak.testsuite.admin.Users;
 import org.keycloak.testsuite.util.SamlClientBuilder;
 import org.keycloak.dom.saml.v2.protocol.AuthnRequestType;
 import org.keycloak.saml.common.exceptions.ConfigurationException;
@@ -34,6 +37,8 @@ import org.apache.http.client.protocol.HttpClientContext;
 import org.apache.http.impl.client.CloseableHttpClient;
 import org.w3c.dom.Document;
 
+import javax.ws.rs.core.HttpHeaders;
+
 
 public class CreateAuthnRequestStepBuilder extends SamlDocumentStepBuilder<AuthnRequestType, CreateAuthnRequestStepBuilder> {
 
@@ -43,6 +48,8 @@ public class CreateAuthnRequestStepBuilder extends SamlDocumentStepBuilder<Authn
     private final String assertionConsumerURL;
     private String signingPublicKeyPem;  // TODO: should not be needed
     private String signingPrivateKeyPem;
+    private String signingCertificate;
+    private String authorizationHeader;
 
     private final Document forceLoginRequestDocument;
 
@@ -80,8 +87,21 @@ public class CreateAuthnRequestStepBuilder extends SamlDocumentStepBuilder<Authn
     }
 
     public CreateAuthnRequestStepBuilder signWith(String signingPrivateKeyPem, String signingPublicKeyPem) {
+        return signWith(signingPrivateKeyPem, signingPublicKeyPem, null);
+    }
+
+    public CreateAuthnRequestStepBuilder signWith(String signingPrivateKeyPem, String signingPublicKeyPem, String signingCertificate) {
         this.signingPrivateKeyPem = signingPrivateKeyPem;
         this.signingPublicKeyPem = signingPublicKeyPem;
+        this.signingCertificate = signingCertificate;
+        return this;
+    }
+    
+    public CreateAuthnRequestStepBuilder basicAuthentication(UserRepresentation user) {
+        String username = user.getUsername();
+        String password = Users.getPasswordOf(user);
+        String pair = username + ":" + password;
+        this.authorizationHeader = "Basic " + Base64.encodeBytes(pair.getBytes());
         return this;
     }
 
@@ -98,9 +118,16 @@ public class CreateAuthnRequestStepBuilder extends SamlDocumentStepBuilder<Authn
 
         Document samlDoc = DocumentUtil.getDocument(transformed);
         String relayState = this.relayState == null ? null : this.relayState.get();
-        return this.signingPrivateKeyPem == null
+
+        HttpUriRequest request = this.signingPrivateKeyPem == null
           ? requestBinding.createSamlUnsignedRequest(authServerSamlUrl, relayState, samlDoc)
-          : requestBinding.createSamlSignedRequest(authServerSamlUrl, relayState, samlDoc, signingPrivateKeyPem, signingPublicKeyPem);
+          : requestBinding.createSamlSignedRequest(authServerSamlUrl, relayState, samlDoc, signingPrivateKeyPem, signingPublicKeyPem, signingCertificate);
+
+        if (authorizationHeader != null) {
+            request.addHeader(HttpHeaders.AUTHORIZATION, authorizationHeader);
+        }
+        
+        return request;
     }
 
     protected Document createLoginRequestDocument() {

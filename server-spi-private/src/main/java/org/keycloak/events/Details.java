@@ -37,6 +37,12 @@ public interface Details {
     String IDENTITY_PROVIDER_USERNAME = "identity_provider_identity";
     String REGISTER_METHOD = "register_method";
     String USERNAME = "username";
+    String FIRST_NAME = "first_name";
+    String LAST_NAME = "last_name";
+    String PREVIOUS_FIRST_NAME = "previous_first_name";
+    String UPDATED_FIRST_NAME = "updated_first_name";
+    String PREVIOUS_LAST_NAME = "previous_last_name";
+    String UPDATED_LAST_NAME = "updated_last_name";
     String REMEMBER_ME = "remember_me";
     String TOKEN_ID = "token_id";
     String REFRESH_TOKEN_ID = "refresh_token_id";
@@ -47,11 +53,10 @@ public interface Details {
     String REASON = "reason";
     String REVOKED_CLIENT = "revoked_client";
     String AUDIENCE = "audience";
+    String PERMISSION = "permission";
     String SCOPE = "scope";
     String REQUESTED_ISSUER = "requested_issuer";
     String REQUESTED_SUBJECT = "requested_subject";
-    String CLIENT_SESSION_STATE = "client_session_state";
-    String CLIENT_SESSION_HOST = "client_session_host";
     String RESTART_AFTER_TIMEOUT = "restart_after_timeout";
 
     String CONSENT = "consent";
@@ -75,4 +80,5 @@ public interface Details {
     String X509_CERTIFICATE_ISSUER_DISTINGUISHED_NAME = "x509_cert_issuer_distinguished_name";
 
     String CREDENTIAL_TYPE = "credential_type";
+    String SELECTED_CREDENTIAL_ID = "selected_credential_id";
 }

@@ -16,13 +16,16 @@
 
 package org.keycloak.authentication.authenticators.browser;
 
-import com.webauthn4j.data.WebAuthnAuthenticationContext;
+import com.webauthn4j.data.AuthenticationParameters;
+import com.webauthn4j.data.AuthenticationRequest;
 import com.webauthn4j.data.client.Origin;
 import com.webauthn4j.data.client.challenge.Challenge;
 import com.webauthn4j.data.client.challenge.DefaultChallenge;
 import com.webauthn4j.server.ServerProperty;
 import com.webauthn4j.util.exception.WebAuthnException;
+
 import org.jboss.logging.Logger;
+
 import org.keycloak.WebAuthnConstants;
 import org.keycloak.authentication.AuthenticationFlowContext;
 import org.keycloak.authentication.AuthenticationFlowError;
@@ -46,9 +49,11 @@ import org.keycloak.models.RealmModel;
 import org.keycloak.models.UserModel;
 import org.keycloak.models.WebAuthnPolicy;
 import org.keycloak.models.credential.WebAuthnCredentialModel;
+import org.keycloak.sessions.AuthenticationSessionModel;
 
 import javax.ws.rs.core.MultivaluedMap;
 import javax.ws.rs.core.Response;
+import java.nio.charset.StandardCharsets;
 import java.util.Collections;
 import java.util.List;
 
@@ -61,7 +66,6 @@ public class WebAuthnAuthenticator implements Authenticator, CredentialValidator
 
     private static final Logger logger = Logger.getLogger(WebAuthnAuthenticator.class);
     private KeycloakSession session;
-    private WebAuthnAuthenticatorsBean authenticators;
 
     public WebAuthnAuthenticator(KeycloakSession session) {
         this.session = session;
@@ -76,15 +80,14 @@ public class WebAuthnAuthenticator implements Authenticator, CredentialValidator
         form.setAttribute(WebAuthnConstants.CHALLENGE, challengeValue);
 
         WebAuthnPolicy policy = getWebAuthnPolicy(context);
-        String rpId = policy.getRpId();
-        if (rpId == null || rpId.isEmpty()) rpId =  context.getUriInfo().getBaseUri().getHost();
+        String rpId = getRpID(context);
         form.setAttribute(WebAuthnConstants.RP_ID, rpId);
 
         UserModel user = context.getUser();
         boolean isUserIdentified = false;
         if (user != null) {
             // in 2 Factor Scenario where the user has already been identified
-            authenticators = new WebAuthnAuthenticatorsBean(context.getSession(), context.getRealm(), user, getCredentialType());
+            WebAuthnAuthenticatorsBean authenticators = new WebAuthnAuthenticatorsBean(context.getSession(), context.getRealm(), user, getCredentialType());
             if (authenticators.getAuthenticators().isEmpty()) {
                 // require the user to register webauthn authenticator
                 return;
@@ -108,6 +111,13 @@ public class WebAuthnAuthenticator implements Authenticator, CredentialValidator
         return context.getRealm().getWebAuthnPolicy();
     }
 
+    protected String getRpID(AuthenticationFlowContext context){
+        WebAuthnPolicy policy = getWebAuthnPolicy(context);
+        String rpId = policy.getRpId();
+        if (rpId == null || rpId.isEmpty()) rpId = context.getUriInfo().getBaseUri().getHost();
+        return rpId;
+    }
+
     protected String getCredentialType() {
         return WebAuthnCredentialModel.TYPE_TWOFACTOR;
     }
@@ -126,7 +136,7 @@ public class WebAuthnAuthenticator implements Authenticator, CredentialValidator
         }
 
         String baseUrl = UriUtils.getOrigin(context.getUriInfo().getBaseUri());
-        String rpId = context.getUriInfo().getBaseUri().getHost();
+        String rpId = getRpID(context);
 
         Origin origin = new Origin(baseUrl);
         Challenge challenge = new DefaultChallenge(context.getAuthenticationSession().getAuthNote(WebAuthnConstants.AUTH_CHALLENGE_NOTE));
@@ -137,25 +147,24 @@ public class WebAuthnAuthenticator implements Authenticator, CredentialValidator
         byte[] authenticatorData = Base64Url.decode(params.getFirst(WebAuthnConstants.AUTHENTICATOR_DATA));
         byte[] signature = Base64Url.decode(params.getFirst(WebAuthnConstants.SIGNATURE));
 
-        String userId = params.getFirst(WebAuthnConstants.USER_HANDLE);
-        boolean isUVFlagChecked = false;
-        String userVerificationRequirement = getWebAuthnPolicy(context).getUserVerificationRequirement();
-        if (WebAuthnConstants.OPTION_REQUIRED.equals(userVerificationRequirement)) isUVFlagChecked = true;
-
+        final String userHandle = params.getFirst(WebAuthnConstants.USER_HANDLE);
+        final String userId;
         // existing User Handle means that the authenticator used Resident Key supported public key credential
-        if (userId == null || userId.isEmpty()) {
+        if (userHandle == null || userHandle.isEmpty()) {
             // Resident Key not supported public key credential was used
             // so rely on the user that has already been authenticated
             userId = context.getUser().getId();
         } else {
+            // decode using the same charset as it has been encoded (see: WebAuthnRegister.java)
+            userId = new String(Base64Url.decode(userHandle), StandardCharsets.UTF_8);
             if (context.getUser() != null) {
                 // Resident Key supported public key credential was used,
                 // so need to confirm whether the already authenticated user is equals to one authenticated by the webauthn authenticator
                 String firstAuthenticatedUserId = context.getUser().getId();
                 if (firstAuthenticatedUserId != null && !firstAuthenticatedUserId.equals(userId)) {
                     context.getEvent()
-                        .detail("first_authenticated_user_id", firstAuthenticatedUserId)
-                        .detail("web_authn_authenticator_authenticated_user_id", userId);
+                            .detail("first_authenticated_user_id", firstAuthenticatedUserId)
+                            .detail("web_authn_authenticator_authenticated_user_id", userId);
                     setErrorResponse(context, WEBAUTHN_ERROR_DIFFERENT_USER, null);
                     return;
                 }
@@ -166,18 +175,30 @@ public class WebAuthnAuthenticator implements Authenticator, CredentialValidator
                 // NOP
             }
         }
-        UserModel user = session.users().getUserById(userId, context.getRealm());
-        WebAuthnAuthenticationContext authenticationContext = new WebAuthnAuthenticationContext(
+
+        boolean isUVFlagChecked = false;
+        String userVerificationRequirement = getWebAuthnPolicy(context).getUserVerificationRequirement();
+        if (WebAuthnConstants.OPTION_REQUIRED.equals(userVerificationRequirement)) isUVFlagChecked = true;
+
+        UserModel user = session.users().getUserById(context.getRealm(), userId);
+
+        AuthenticationRequest authenticationRequest = new AuthenticationRequest(
                 credentialId,
-                clientDataJSON,
                 authenticatorData,
-                signature,
+                clientDataJSON,
+                signature
+                );
+
+        AuthenticationParameters authenticationParameters = new AuthenticationParameters(
                 server,
+                null, // here authenticator cannot be fetched, set it afterwards in WebAuthnCredentialProvider.isValid()
                 isUVFlagChecked
-        );
+                );
 
         WebAuthnCredentialModelInput cred = new WebAuthnCredentialModelInput(getCredentialType());
-        cred.setAuthenticationContext(authenticationContext);
+
+        cred.setAuthenticationRequest(authenticationRequest);
+        cred.setAuthenticationParameters(authenticationParameters);
 
         boolean result = false;
         try {
@@ -214,8 +235,9 @@ public class WebAuthnAuthenticator implements Authenticator, CredentialValidator
 
     public void setRequiredActions(KeycloakSession session, RealmModel realm, UserModel user) {
         // ask the user to do required action to register webauthn authenticator
-        if (!user.getRequiredActions().contains(WebAuthnRegisterFactory.PROVIDER_ID)) {
-            user.addRequiredAction(WebAuthnRegisterFactory.PROVIDER_ID);
+        AuthenticationSessionModel authenticationSession = session.getContext().getAuthenticationSession();
+        if (!authenticationSession.getRequiredActions().contains(WebAuthnRegisterFactory.PROVIDER_ID)) {
+            authenticationSession.addRequiredAction(WebAuthnRegisterFactory.PROVIDER_ID);
         }
     }
 
@@ -287,8 +309,12 @@ public class WebAuthnAuthenticator implements Authenticator, CredentialValidator
 
     private Response createErrorResponse(AuthenticationFlowContext context, final String errorCase) {
         LoginFormsProvider provider = context.form().setError(errorCase);
-        if (authenticators != null && authenticators.getAuthenticators() != null) {
-            provider.setAttribute(WebAuthnConstants.ALLOWED_AUTHENTICATORS, authenticators);
+        UserModel user = context.getUser();
+        if (user != null) {
+            WebAuthnAuthenticatorsBean authenticators = new WebAuthnAuthenticatorsBean(context.getSession(), context.getRealm(), user, getCredentialType());
+            if (authenticators.getAuthenticators() != null) {
+                provider.setAttribute(WebAuthnConstants.ALLOWED_AUTHENTICATORS, authenticators);
+            }
         }
         return provider.createWebAuthnErrorPage();
     }

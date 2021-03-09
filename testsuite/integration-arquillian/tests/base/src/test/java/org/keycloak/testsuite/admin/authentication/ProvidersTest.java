@@ -34,12 +34,14 @@ import java.util.List;
 import java.util.Map;
 import org.keycloak.testsuite.arquillian.annotation.AuthServerContainerExclude;
 import org.keycloak.testsuite.arquillian.annotation.AuthServerContainerExclude.AuthServer;
+import org.keycloak.testsuite.arquillian.annotation.EnableFeature;
 
 import static org.hamcrest.Matchers.is;
 
 /**
  * @author <a href="mailto:mstrukel@redhat.com">Marko Strukelj</a>
  */
+@EnableFeature(value = Profile.Feature.WEB_AUTHN, skipRestart = true, onlyForProduct = true)
 public class ProvidersTest extends AbstractAuthenticationTest {
 
     @Test
@@ -136,9 +138,7 @@ public class ProvidersTest extends AbstractAuthenticationTest {
     @Test
     public void testInitialAuthenticationProviders() {
         List<Map<String, Object>> providers = authMgmtResource.getAuthenticatorProviders();
-        providers = sortProviders(providers);
-
-        compareProviders(sortProviders(expectedAuthProviders()), providers);
+        compareProviders(expectedAuthProviders(), providers);
     }
 
     private List<Map<String, Object>> expectedAuthProviders() {
@@ -181,7 +181,7 @@ public class ProvidersTest extends AbstractAuthenticationTest {
         addProviderInfo(result, "idp-review-profile", "Review Profile",
                 "User reviews and updates profile data retrieved from Identity Provider in the displayed form");
         addProviderInfo(result, "idp-username-password-form", "Username Password Form for identity provider reauthentication",
-                "Validates a password from login form. Username is already known from identity provider authentication");
+                "Validates a password from login form. Username may be already known from identity provider authentication");
         addProviderInfo(result, "no-cookie-redirect", "Browser Redirect/Refresh", "Perform a 302 redirect to get user agent's current URI on authenticate path with an auth_session_id query parameter.  This is for client's that do not support cookies.");
         addProviderInfo(result, "push-button-authenticator", "TEST: Button Login",
                 "Just press the button to login.");
@@ -196,6 +196,7 @@ public class ProvidersTest extends AbstractAuthenticationTest {
                 "Testsuite Dummy authenticator.  Just passes through and is hardcoded to a specific user");
         addProviderInfo(result, "testsuite-dummy-registration", "Testsuite Dummy Pass Thru",
                 "Testsuite Dummy authenticator.  Just passes through and is hardcoded to a specific user");
+        addProviderInfo(result, "set-client-note-authenticator", "Set Client Note Authenticator", "Set client note of specified name with the specified value to the authenticationSession.");
         addProviderInfo(result, "testsuite-username", "Testsuite Username Only",
                 "Testsuite Username authenticator.  Username parameter sets username");
         addProviderInfo(result, "webauthn-authenticator", "WebAuthn Authenticator", "Authenticator for WebAuthn. Usually used for WebAuthn two-factor authentication");
@@ -213,7 +214,8 @@ public class ProvidersTest extends AbstractAuthenticationTest {
                 "Flow is executed only if the user attribute exists and has the expected value");
         addProviderInfo(result, "set-attribute", "Set user attribute",
                 "Set a user attribute");
-
+        addProviderInfo(result, "idp-detect-existing-broker-user", "Detect existing broker user",
+                "Detect if there is an existing Keycloak account with same email like identity provider. If no, throw an error.");
         return result;
     }
 
@@ -234,7 +236,7 @@ public class ProvidersTest extends AbstractAuthenticationTest {
         for (Map<String, Object> item: list) {
             result.add(new HashMap(item));
         }
-        return result;
+        return sortProviders(result);
     }
 
     private void addProviderInfo(List<Map<String, Object>> list, String id, String displayName, String description) {

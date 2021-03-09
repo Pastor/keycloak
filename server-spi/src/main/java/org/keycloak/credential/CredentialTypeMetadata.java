@@ -50,7 +50,7 @@ public class CredentialTypeMetadata implements Comparable<CredentialTypeMetadata
 
 
     public enum Category {
-        PASSWORD("password", 1),
+        BASIC_AUTHENTICATION("basic-authentication", 1),
         TWO_FACTOR("two-factor", 2),
         PASSWORDLESS("passwordless", 3);
 
@@ -266,13 +266,10 @@ public class CredentialTypeMetadata implements Comparable<CredentialTypeMetadata
                 return false;
             }
 
-            for (RequiredActionProviderModel requiredActionProvider : realm.getRequiredActionProviders()) {
-                if (requiredActionProviderId.equals(requiredActionProvider.getProviderId()) && requiredActionProvider.isEnabled()) {
-                    return true;
-                }
-            }
-
-            return false;
+            return realm.getRequiredActionProvidersStream()
+                    .filter(RequiredActionProviderModel::isEnabled)
+                    .map(RequiredActionProviderModel::getProviderId)
+                    .anyMatch(requiredActionProviderId::equals);
         }
 
     }
