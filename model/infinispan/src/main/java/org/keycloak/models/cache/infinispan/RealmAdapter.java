@@ -29,6 +29,7 @@ import org.keycloak.storage.client.ClientStorageProvider;
 
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.function.Supplier;
 import java.util.stream.Stream;
 
 /**
@@ -40,18 +41,20 @@ public class RealmAdapter implements CachedRealmModel {
     protected RealmCacheSession cacheSession;
     protected volatile RealmModel updated;
     protected KeycloakSession session;
+    private final Supplier<RealmModel> modelSupplier;
 
     public RealmAdapter(KeycloakSession session, CachedRealm cached, RealmCacheSession cacheSession) {
         this.cached = cached;
         this.cacheSession = cacheSession;
         this.session = session;
+        this.modelSupplier = this::getRealm;
     }
 
     @Override
     public RealmModel getDelegateForUpdate() {
         if (updated == null) {
             cacheSession.registerRealmInvalidation(cached.getId(), cached.getName());
-            updated = cacheSession.getRealmDelegate().getRealm(cached.getId());
+            updated = modelSupplier.get();
             if (updated == null) throw new IllegalStateException("Not found in database");
         }
         return updated;
@@ -641,6 +644,19 @@ public class RealmAdapter implements CachedRealmModel {
     public Stream<RequiredCredentialModel> getRequiredCredentialsStream() {
         if (isUpdated()) return updated.getRequiredCredentialsStream();
         return cached.getRequiredCredentials().stream();
+    }
+
+    @Override
+    public OAuth2DeviceConfig getOAuth2DeviceConfig() {
+        if (isUpdated())
+            return updated.getOAuth2DeviceConfig();
+        return cached.getOAuth2DeviceConfig(modelSupplier);
+    }
+
+    @Override
+    public List<RequiredCredentialModel> getRequiredCredentials() {
+        if (isUpdated()) return updated.getRequiredCredentials();
+        return cached.getRequiredCredentials();
     }
 
     @Override
@@ -1690,6 +1706,10 @@ public class RealmAdapter implements CachedRealmModel {
             localizationTexts = cached.getRealmLocalizationTexts().get(locale);
         }
         return Collections.unmodifiableMap(localizationTexts);
+    }
+
+    private RealmModel getRealm() {
+        return cacheSession.getRealmDelegate().getRealm(cached.getId());
     }
 
     @Override

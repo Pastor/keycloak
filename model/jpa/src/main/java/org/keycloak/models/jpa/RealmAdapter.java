@@ -588,6 +588,11 @@ public class RealmAdapter implements RealmModel, JpaModel<RealmEntity> {
     }
 
     @Override
+    public OAuth2DeviceConfig getOAuth2DeviceConfig() {
+        return new OAuth2DeviceConfig(this);
+    }
+
+    @Override
     public Map<String, Integer> getUserActionTokenLifespans() {
 
         Map<String, Integer> userActionTokens = new HashMap<>();
