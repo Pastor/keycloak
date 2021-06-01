@@ -87,6 +87,7 @@ public class ApplianceBootstrap {
         realm.setRegistrationEmailAsUsername(false);
 
         session.getContext().setRealm(realm);
+        DefaultKeyProviders.createProviders(realm);
 
         return true;
     }
